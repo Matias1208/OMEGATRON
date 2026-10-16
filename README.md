@@ -21,7 +21,8 @@ npm run dev               # http://localhost:3000
 **Para la demo usa producción** (responde en ~200 ms; `dev` compila cada ruta en la primera petición y la ESP32 puede agotar su timeout):
 
 ```bash
-npm run build && npm start -- -H 0.0.0.0
+npm run demo              # build de producción + servidor accesible desde la red (ESP32)
+npm run start:red         # solo arrancar, si ya hiciste el build y no cambiaste código
 ```
 
 ### Scripts
