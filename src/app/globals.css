@@ -1,64 +1,106 @@
 @import "tailwindcss";
 
 /*
- * OMEGATRON — tema industrial oscuro.
- * Los tokens se exponen a Tailwind vía @theme: bg-surface, text-muted, border-line,
- * text-accent, bg-ok/10, etc. Cambiar un color aquí lo cambia en toda la app.
+ * HARKAI — sistema de diseño.
+ *
+ * Paleta OBLIGATORIA: estos 4 hex son los ÚNICOS colores del producto y viven solo aquí.
+ * Todo lo demás se deriva de ellos (opacidad, mezclas, degradados, brillos).
+ * `--color-*: initial` desactiva la paleta por defecto de Tailwind: clases como
+ * `bg-red-500` dejan de existir, así nadie puede salirse de la marca por accidente.
  */
 @theme {
-  --color-canvas: #070b10; /* fondo de la página */
-  --color-surface: #0d131b; /* tarjetas */
-  --color-surface-2: #121a25; /* tarjetas elevadas / hover */
-  --color-line: #1d2836; /* bordes */
-  --color-line-strong: #2a3849;
+  --color-*: initial;
 
-  --color-ink: #e6edf5; /* texto principal */
-  --color-muted: #8b9aad; /* texto secundario */
-  --color-faint: #5b6879; /* etiquetas, ejes */
+  /* ── Marca ─────────────────────────────── */
+  --color-green: #00fb15; /* acceso concedido, estados OK, confirmaciones */
+  --color-cyan: #00e5ff; /* alertas, acentos, elementos activos, gráficos, enlaces */
+  --color-night: #030b1a; /* fondo */
+  --color-white: #ffffff; /* texto */
 
-  --color-accent: #22d3ee; /* cian de marca */
-  --color-accent-strong: #06b6d4;
+  /* ── Derivados semánticos (solo mezclas de los 4 de arriba) ── */
+  --color-canvas: var(--color-night);
+  --color-ink: var(--color-white);
+  --color-muted: color-mix(in srgb, var(--color-white) 68%, transparent);
+  --color-faint: color-mix(in srgb, var(--color-white) 50%, transparent);
+  --color-accent: var(--color-cyan);
+  --color-ok: var(--color-green);
+  --color-alert: var(--color-cyan);
+  --color-surface: color-mix(in srgb, var(--color-cyan) 4%, var(--color-night));
+  --color-surface-2: color-mix(in srgb, var(--color-cyan) 9%, var(--color-night));
+  --color-line: color-mix(in srgb, var(--color-cyan) 14%, transparent);
+  --color-line-strong: color-mix(in srgb, var(--color-cyan) 28%, transparent);
 
-  /* Semáforo EHS */
-  --color-ok: #34d399;
-  --color-warn: #fbbf24;
-  --color-danger: #f87171;
+  /* ── Tipografía ────────────────────────── */
+  --font-sans: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
 
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  /* ── Forma y movimiento ────────────────── */
+  --radius-card: 1.125rem; /* 18px */
+  --shadow-glow-cyan: 0 0 0 1px color-mix(in srgb, var(--color-cyan) 22%, transparent),
+    0 8px 32px -8px color-mix(in srgb, var(--color-cyan) 28%, transparent);
+  --shadow-glow-green: 0 0 0 1px color-mix(in srgb, var(--color-green) 30%, transparent),
+    0 8px 32px -6px color-mix(in srgb, var(--color-green) 35%, transparent);
+  --shadow-card: 0 12px 40px -16px color-mix(in srgb, var(--color-night) 90%, transparent);
 }
 
 :root {
   color-scheme: dark;
 }
 
+html {
+  background-color: var(--color-night);
+}
+
 body {
-  background-color: var(--color-canvas);
-  color: var(--color-ink);
-  /* Retícula técnica tenue + halo cian en la parte superior */
+  min-height: 100dvh;
+  background-color: var(--color-night);
+  color: var(--color-white);
+  /* Identidad de marca: cian en las esquinas que se funde con el azul noche. */
   background-image:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgb(34 211 238 / 0.09), transparent 70%),
-    linear-gradient(rgb(255 255 255 / 0.022) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(255 255 255 / 0.022) 1px, transparent 1px);
-  background-size:
-    100% 100%,
-    32px 32px,
-    32px 32px;
+    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--color-cyan) 14%, transparent), transparent 42%),
+    radial-gradient(circle at 100% 100%, color-mix(in srgb, var(--color-cyan) 10%, transparent), transparent 45%);
   background-attachment: fixed;
 }
 
-/* Cifras alineadas en tablas y KPIs */
-.tabular {
+/* Tarjeta glassmorphism: fondo semitransparente, borde cian fino, brillo suave en hover. */
+@utility glass {
+  background-color: color-mix(in srgb, var(--color-white) 3.5%, transparent);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(14px);
+  transition:
+    box-shadow 200ms ease,
+    border-color 200ms ease,
+    transform 200ms ease;
+}
+
+@utility glass-hover {
+  &:hover {
+    border-color: var(--color-line-strong);
+    box-shadow: var(--shadow-glow-cyan);
+  }
+}
+
+/* Cifras alineadas en tablas y columnas (no en números grandes). */
+@utility tabular {
   font-variant-numeric: tabular-nums;
 }
 
 ::selection {
-  background: rgb(34 211 238 / 0.3);
+  background: color-mix(in srgb, var(--color-cyan) 30%, transparent);
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-cyan);
   outline-offset: 2px;
+}
+
+/* Scrollbar discreta acorde a la marca */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-cyan) 25%, transparent) transparent;
 }
 
 @media (prefers-reduced-motion: reduce) {

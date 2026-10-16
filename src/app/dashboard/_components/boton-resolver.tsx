@@ -17,7 +17,7 @@ export function BotonResolver({ id }: { id: string }) {
           setError(!ok);
         })
       }
-      className="shrink-0 rounded-md border border-line-strong px-2.5 py-1 text-xs text-muted transition-colors hover:border-ok/50 hover:text-ok disabled:opacity-50"
+      className="shrink-0 rounded-lg border border-line-strong px-3 py-1.5 text-xs font-medium text-white transition-all duration-200 hover:border-green/60 hover:text-green hover:shadow-glow-green disabled:opacity-50"
     >
       {pendiente ? "…" : error ? "Reintentar" : "Resolver"}
     </button>

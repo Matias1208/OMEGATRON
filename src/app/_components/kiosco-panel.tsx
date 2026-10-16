@@ -1,25 +1,57 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { CircleCheck, Clock, CreditCard, ScanLine, ShieldOff, TriangleAlert, X, type LucideIcon } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { dispensarEnKiosco, simularVeredictoCamara } from "@/features/dispensa/actions";
 import type { DatosKiosco } from "@/features/dispensa/queries";
 import type { CodigoRechazo, ResultadoDispensacion } from "@/features/dispensa/types";
-import { Badge, Card, CardHeader, EmptyState, cx, type Tono } from "./ui";
+import { Badge, CardHeader, EmptyState, cx, type Tono } from "./ui";
+import { Wordmark } from "./wordmark";
+
+// ─────────────────────────────────────────────
+// Presentación de cada resultado: color + ícono + etiqueta
+// ─────────────────────────────────────────────
 
 type Veredicto = { estado: "VERIFICADO" | "INCUMPLIMIENTO_EHS"; entregas: number } | { error: string };
+type Clase = "CONCEDIDO" | "DENEGADO" | "ALERTA";
 
-const RECHAZOS: Record<CodigoRechazo, { titulo: string; tono: Tono }> = {
-  RETIRO_EXCESIVO: { titulo: "Retiro bloqueado: EPP aún vigente", tono: "ATENCION" },
-  OPERARIO_NO_ENCONTRADO: { titulo: "Credencial no registrada", tono: "CRITICO" },
-  OPERARIO_INACTIVO: { titulo: "Operario inactivo", tono: "CRITICO" },
-  SIN_STOCK: { titulo: "Sin stock del EPP requerido", tono: "CRITICO" },
-  SIN_EPP_ASIGNADO: { titulo: "Sin EPP configurado para su cargo/tarea", tono: "ATENCION" },
-  ESTACION_NO_ENCONTRADA: { titulo: "Estación no disponible", tono: "CRITICO" },
-  ESTACION_SIN_AREA: { titulo: "Estación sin área asignada", tono: "CRITICO" },
-  AREA_NO_ENCONTRADA: { titulo: "Área no registrada", tono: "CRITICO" },
-  HARDWARE_NO_DISPONIBLE: { titulo: "El dispensador no respondió", tono: "CRITICO" },
-  DATOS_INVALIDOS: { titulo: "Credencial ilegible", tono: "ATENCION" },
-  ERROR_INTERNO: { titulo: "Error interno", tono: "CRITICO" },
+const CLASE_RECHAZO: Record<CodigoRechazo, { clase: Clase; titulo: string }> = {
+  RETIRO_EXCESIVO: { clase: "DENEGADO", titulo: "EPP aún vigente" },
+  OPERARIO_NO_ENCONTRADO: { clase: "DENEGADO", titulo: "Credencial no registrada" },
+  OPERARIO_INACTIVO: { clase: "DENEGADO", titulo: "Operario inactivo" },
+  SIN_EPP_ASIGNADO: { clase: "DENEGADO", titulo: "Sin EPP para su cargo/tarea" },
+  DATOS_INVALIDOS: { clase: "DENEGADO", titulo: "Credencial ilegible" },
+  SIN_STOCK: { clase: "ALERTA", titulo: "Sin stock del EPP requerido" },
+  ESTACION_NO_ENCONTRADA: { clase: "ALERTA", titulo: "Estación no disponible" },
+  ESTACION_SIN_AREA: { clase: "ALERTA", titulo: "Estación sin área asignada" },
+  AREA_NO_ENCONTRADA: { clase: "ALERTA", titulo: "Área no registrada" },
+  HARDWARE_NO_DISPONIBLE: { clase: "ALERTA", titulo: "El dispensador no respondió" },
+  ERROR_INTERNO: { clase: "ALERTA", titulo: "Error interno" },
+};
+
+const PRESENTACION: Record<Clase, { etiqueta: string; icono: LucideIcon; tono: Tono; texto: string; fondo: string }> = {
+  CONCEDIDO: {
+    etiqueta: "ACCESO CONCEDIDO",
+    icono: CircleCheck,
+    tono: "OK",
+    texto: "text-green",
+    fondo: "border-green/50 bg-green/10 shadow-glow-green",
+  },
+  DENEGADO: {
+    etiqueta: "DENEGADO",
+    icono: ShieldOff,
+    tono: "DENEGADO",
+    texto: "text-cyan",
+    fondo: "border-cyan/60 bg-cyan/10 shadow-glow-cyan",
+  },
+  ALERTA: {
+    etiqueta: "ALERTA",
+    icono: TriangleAlert,
+    tono: "ATENCION",
+    texto: "text-cyan",
+    fondo: "border-cyan/60 bg-cyan/10 shadow-glow-cyan",
+  },
 };
 
 const RIESGO_TONO: Record<string, Tono> = { BAJO: "OK", MEDIO: "ACENTO", ALTO: "ATENCION", CRITICO: "CRITICO" };
@@ -30,15 +62,17 @@ const fechaCorta = (iso: string) =>
     new Date(iso),
   );
 
-export function KioscoPanel({ datos, simulacionCamara }: { datos: DatosKiosco; simulacionCamara: boolean }) {
-  const [estacion, setEstacion] = useState(datos.estaciones[0]?.codigo ?? "");
-  const [rfid, setRfid] = useState("");
+function clasificar(r: ResultadoDispensacion): { clase: Clase; titulo: string } {
+  return r.ok ? { clase: "CONCEDIDO", titulo: "Retire su EPP" } : CLASE_RECHAZO[r.codigo];
+}
+
+/** Lógica compartida entre el panel y la pantalla completa: lectura → server action → resultado. */
+function useDispensacion(estacion: string) {
   const [resultado, setResultado] = useState<ResultadoDispensacion | null>(null);
   const [veredicto, setVeredicto] = useState<Veredicto | null>(null);
   const [pendiente, iniciar] = useTransition();
-  const inputRef = useRef<HTMLInputElement>(null);
 
-  function dispensar(uid: string) {
+  function dispensar(uid: string, alTerminar?: () => void) {
     if (!uid.trim() || !estacion) return;
     setVeredicto(null);
     iniciar(async () => {
@@ -47,8 +81,7 @@ export function KioscoPanel({ datos, simulacionCamara }: { datos: DatosKiosco; s
       } catch {
         setResultado({ ok: false, codigo: "ERROR_INTERNO", mensaje: "No se pudo contactar al servidor." });
       }
-      setRfid("");
-      inputRef.current?.focus(); // listo para la siguiente credencial
+      alTerminar?.();
     });
   }
 
@@ -59,29 +92,66 @@ export function KioscoPanel({ datos, simulacionCamara }: { datos: DatosKiosco; s
     });
   }
 
+  return { resultado, setResultado, veredicto, pendiente, dispensar, enviarVeredicto };
+}
+
+function ListaBloqueados({ bloqueados }: { bloqueados: { eppId: string; nombre: string; vigenteHasta: string }[] }) {
+  return (
+    <ul className="flex flex-col gap-1 text-xs text-muted">
+      {bloqueados.map((b) => (
+        <li key={b.eppId}>
+          {b.nombre} <span className="font-mono text-faint">· renovable {fechaCorta(b.vigenteHasta)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Panel (centro de control)
+// ─────────────────────────────────────────────
+
+export function KioscoPanel({ datos, simulacionCamara }: { datos: DatosKiosco; simulacionCamara: boolean }) {
+  const [estacion, setEstacion] = useState(datos.estaciones[0]?.codigo ?? "");
+  const [rfid, setRfid] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { resultado, veredicto, pendiente, dispensar, enviarVeredicto } = useDispensacion(estacion);
+
   if (datos.estaciones.length === 0) {
-    return (
-      <Card>
-        <CardHeader titulo="Estación de dispensación" />
-        <EmptyState titulo="No hay estaciones activas" descripcion="Registra una estación para poder dispensar EPP." />
-      </Card>
-    );
+    return <EmptyState titulo="No hay estaciones activas" descripcion="Registra una estación para poder dispensar EPP." />;
   }
 
+  const enviar = (uid: string) =>
+    dispensar(uid, () => {
+      setRfid("");
+      inputRef.current?.focus();
+    });
+  const vista = resultado ? clasificar(resultado) : null;
+  const pres = vista ? PRESENTACION[vista.clase] : null;
+
   return (
-    <Card className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-      {/* Entrada de credencial */}
-      <div className="flex flex-col gap-4">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      {/* Entrada */}
+      <div className="flex flex-col gap-5">
         <CardHeader
-          titulo="Estación de dispensación"
-          descripcion="Acerque la credencial al lector USB o escriba el UID. Mismo flujo que la ESP32."
+          titulo="Dispensación"
+          descripcion="Lector RFID USB o UID manual. Mismo flujo que la estación ESP32."
+          icono={ScanLine}
+          accion={
+            <Link
+              href={`/?kiosco=1&estacion=${encodeURIComponent(estacion)}`}
+              className="shrink-0 rounded-lg border border-cyan/40 px-3 py-1.5 text-xs font-medium whitespace-nowrap text-cyan transition-all duration-200 hover:bg-cyan/10 hover:shadow-glow-cyan"
+            >
+              Pantalla completa
+            </Link>
+          }
         />
 
         <form
           className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
-            dispensar(rfid);
+            enviar(rfid);
           }}
         >
           {datos.estaciones.length > 1 && (
@@ -90,34 +160,35 @@ export function KioscoPanel({ datos, simulacionCamara }: { datos: DatosKiosco; s
               <select
                 value={estacion}
                 onChange={(e) => setEstacion(e.target.value)}
-                className="rounded-md border border-line-strong bg-surface-2 px-3 py-2 text-sm text-ink"
+                className="rounded-xl border border-line bg-white/5 px-3 py-2.5 font-mono text-sm text-white"
               >
                 {datos.estaciones.map((e) => (
-                  <option key={e.codigo} value={e.codigo}>
+                  <option key={e.codigo} value={e.codigo} className="bg-night">
                     {e.codigo} · {e.nombre}
                   </option>
                 ))}
               </select>
             </label>
           )}
-
-          <label className="flex flex-col gap-1 text-xs text-muted">
+          <label className="flex flex-col gap-1.5 text-xs text-muted">
             Credencial RFID
             <div className="flex gap-2">
-              <input
-                ref={inputRef}
-                value={rfid}
-                onChange={(e) => setRfid(e.target.value.toUpperCase())}
-                placeholder="Ej. D21CF01B"
-                autoComplete="off"
-                spellCheck={false}
-                autoFocus
-                className="min-w-0 flex-1 rounded-md border border-line-strong bg-surface-2 px-3 py-2 font-mono text-base tracking-widest text-ink placeholder:text-faint focus:border-accent/60"
-              />
+              <span className="relative min-w-0 flex-1">
+                <CreditCard className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-cyan" aria-hidden />
+                <input
+                  ref={inputRef}
+                  value={rfid}
+                  onChange={(e) => setRfid(e.target.value.toUpperCase())}
+                  placeholder="D21CF01B"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="w-full rounded-xl border border-line bg-white/5 py-2.5 pr-3 pl-9 font-mono text-base tracking-[0.2em] text-white placeholder:text-faint transition-colors duration-200 focus:border-cyan/60"
+                />
+              </span>
               <button
                 type="submit"
                 disabled={pendiente || !rfid.trim()}
-                className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-canvas transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-xl bg-cyan px-5 py-2.5 font-display text-sm font-bold text-night transition-all duration-200 hover:shadow-glow-cyan disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {pendiente ? "Validando…" : "Dispensar"}
               </button>
@@ -126,24 +197,22 @@ export function KioscoPanel({ datos, simulacionCamara }: { datos: DatosKiosco; s
         </form>
 
         <div>
-          <p className="mb-2 text-xs text-faint">Credenciales registradas</p>
+          <p className="mb-2 font-mono text-[10px] tracking-[0.15em] text-faint uppercase">Credenciales registradas</p>
           <div className="flex flex-wrap gap-2">
             {datos.operarios.map((o) => (
               <button
                 key={o.rfid}
                 type="button"
                 disabled={pendiente}
-                onClick={() => dispensar(o.rfid)}
+                onClick={() => enviar(o.rfid)}
                 title={`${o.cargo}${o.activo ? "" : " · inactivo"}`}
                 className={cx(
-                  "rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors disabled:opacity-50",
-                  o.activo
-                    ? "border-line-strong bg-surface-2 text-ink hover:border-accent/50"
-                    : "border-line bg-transparent text-faint hover:border-danger/40",
+                  "rounded-xl border px-3 py-2 text-left text-xs transition-all duration-200 disabled:opacity-50",
+                  o.activo ? "border-line bg-white/[0.03] hover:border-cyan/50 hover:shadow-glow-cyan" : "border-dashed border-line text-faint",
                 )}
               >
-                <span className="block font-medium">{o.nombre}</span>
-                <span className="block font-mono text-[11px] text-muted">{o.rfid}</span>
+                <span className="block font-medium text-white">{o.nombre}</span>
+                <span className="block font-mono text-[11px] text-cyan/80">{o.rfid}</span>
               </button>
             ))}
           </div>
@@ -151,131 +220,253 @@ export function KioscoPanel({ datos, simulacionCamara }: { datos: DatosKiosco; s
       </div>
 
       {/* Resultado */}
-      <div aria-live="polite" className="min-h-64 rounded-lg border border-line bg-canvas/60 p-4">
-        {pendiente && !resultado ? (
-          <p className="text-sm text-muted">Validando operario, turno y vida útil…</p>
-        ) : !resultado ? (
-          <EmptyState titulo="Esperando credencial" descripcion="El resultado de la validación EHS aparecerá aquí." />
-        ) : resultado.ok ? (
+      <div aria-live="polite" className={cx("min-h-72 rounded-2xl border p-5 transition-all duration-200", pres ? pres.fondo : "border-line bg-white/[0.02]")}>
+        {!resultado || !pres || !vista ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+            <span className="grid size-14 place-items-center rounded-full bg-cyan/10 text-cyan shadow-glow-cyan">
+              <ScanLine className="size-6" aria-hidden />
+            </span>
+            <p className="font-display text-lg font-semibold text-white">{pendiente ? "Validando reglas EHS…" : "Esperando credencial"}</p>
+            <p className="text-xs text-muted">Operario, turno, vida útil y stock se validan en cada lectura.</p>
+          </div>
+        ) : (
           <div className={cx("flex flex-col gap-4", pendiente && "opacity-60")}>
-            <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <pres.icono className={cx("size-9 shrink-0", pres.texto)} aria-hidden />
               <div>
-                <p className="text-lg font-semibold text-ink">{resultado.operario.nombre}</p>
-                <p className="text-xs text-muted">
-                  {resultado.operario.cargo} · {resultado.area.nombre}
-                </p>
+                <p className={cx("font-display text-xl font-bold tracking-wide", pres.texto)}>{pres.etiqueta}</p>
+                <p className="text-sm text-white">{vista.titulo}</p>
               </div>
-              {resultado.comandoMotor && (
-                <Badge tono="OK" pulso>
-                  Motor {resultado.comandoMotor.motor} · {resultado.comandoMotor.epp}
-                  {resultado.comandoMotor.simulado && " (simulado)"}
-                </Badge>
-              )}
             </div>
 
-            {resultado.tarea ? (
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                <span>
-                  Tarea: <span className="text-ink">{resultado.tarea.nombre}</span>
-                  {resultado.turno && ` · turno ${resultado.turno}`}
-                </span>
-                <Badge tono={RIESGO_TONO[resultado.tarea.nivelRiesgo] ?? "NEUTRO"}>Riesgo {resultado.tarea.nivelRiesgo.toLowerCase()}</Badge>
-                {resultado.origenTarea === "TAREA_HABITUAL" && <Badge tono="NEUTRO">Tarea habitual (sin asignación hoy)</Badge>}
-              </div>
-            ) : (
-              <p className="text-xs text-muted">Sin tarea asignada: solo EPP base del cargo.</p>
-            )}
-
-            <div>
-              <p className="mb-2 text-xs font-medium text-ok">Entregado ({resultado.entregas.length})</p>
-              <ul className="flex flex-col divide-y divide-line rounded-md border border-line">
-                {resultado.entregas.map((e) => (
-                  <li key={e.entregaId} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                    <span className="min-w-0 truncate text-ink">
-                      {e.cantidad > 1 && `${e.cantidad}× `}
-                      {e.nombre}
+            {resultado.ok ? (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-display text-lg font-semibold text-white">{resultado.operario.nombre}</span>
+                  <span className="text-xs text-muted">
+                    {resultado.operario.cargo} · {resultado.area.nombre}
+                  </span>
+                </div>
+                {resultado.tarea ? (
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                    <span>
+                      Tarea <span className="text-white">{resultado.tarea.nombre}</span>
+                      {resultado.turno && ` · turno ${resultado.turno}`}
                     </span>
-                    <span className="shrink-0 font-mono text-[11px] text-faint">
-                      lote {e.loteCodigo} · {usd(e.costoTotal)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+                    <Badge tono={RIESGO_TONO[resultado.tarea.nivelRiesgo] ?? "NEUTRO"}>Riesgo {resultado.tarea.nivelRiesgo.toLowerCase()}</Badge>
+                    {resultado.origenTarea === "TAREA_HABITUAL" && <Badge tono="NEUTRO">Tarea habitual</Badge>}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted">Sin tarea asignada: solo EPP base del cargo.</p>
+                )}
 
-            {resultado.bloqueados.length > 0 && (
-              <div>
-                <p className="mb-2 text-xs font-medium text-warn">Aún vigente, no se entrega ({resultado.bloqueados.length})</p>
-                <ul className="flex flex-col gap-1 text-xs text-muted">
-                  {resultado.bloqueados.map((b) => (
-                    <li key={b.eppId}>
-                      {b.nombre} <span className="text-faint">· renovable desde {fechaCorta(b.vigenteHasta)}</span>
+                <ul className="flex flex-col gap-1">
+                  {resultado.entregas.map((e) => (
+                    <li key={e.entregaId} className="flex items-center justify-between gap-3 rounded-lg bg-night/50 px-3 py-2 text-sm">
+                      <span className="flex min-w-0 items-center gap-2 truncate text-white">
+                        <CircleCheck className="size-4 shrink-0 text-green" aria-hidden />
+                        {e.cantidad > 1 && `${e.cantidad}× `}
+                        {e.nombre}
+                      </span>
+                      <span className="shrink-0 font-mono text-[11px] text-faint">
+                        {e.loteCodigo} · {usd(e.costoTotal)}
+                      </span>
                     </li>
                   ))}
                 </ul>
-              </div>
-            )}
-
-            {resultado.sinStock.length > 0 && (
-              <p className="text-xs text-danger">Sin stock en esta estación: {resultado.sinStock.map((s) => s.nombre).join(", ")}</p>
-            )}
-
-            {/* Verificación por cámara */}
-            {resultado.comandoMotor && (
-              <div className="border-t border-line pt-3">
-                {veredicto ? (
-                  "error" in veredicto ? (
-                    <p className="text-xs text-danger">{veredicto.error}</p>
-                  ) : (
-                    <Badge tono={veredicto.estado === "VERIFICADO" ? "OK" : "CRITICO"}>
-                      {veredicto.estado === "VERIFICADO" ? "Uso verificado por cámara" : "Incumplimiento EHS: alerta enviada"} ·{" "}
-                      {veredicto.entregas} EPP
-                    </Badge>
-                  )
-                ) : simulacionCamara ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-muted">Simular cámara:</span>
-                    <button
-                      type="button"
-                      disabled={pendiente}
-                      onClick={() => enviarVeredicto(resultado.comandoMotor!.entregaId, true)}
-                      className="rounded-md border border-ok/40 px-2.5 py-1 text-xs text-ok hover:bg-ok/10 disabled:opacity-50"
-                    >
-                      Se colocó el EPP
-                    </button>
-                    <button
-                      type="button"
-                      disabled={pendiente}
-                      onClick={() => enviarVeredicto(resultado.comandoMotor!.entregaId, false)}
-                      className="rounded-md border border-danger/40 px-2.5 py-1 text-xs text-danger hover:bg-danger/10 disabled:opacity-50"
-                    >
-                      No se lo colocó
-                    </button>
+                {resultado.bloqueados.length > 0 && (
+                  <div>
+                    <p className="mb-1 text-xs font-medium text-cyan">Aún vigente, no se entrega</p>
+                    <ListaBloqueados bloqueados={resultado.bloqueados} />
                   </div>
-                ) : (
-                  <Badge tono="ACENTO" pulso>
-                    Esperando verificación de la cámara
-                  </Badge>
                 )}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className={cx("flex flex-col gap-3", pendiente && "opacity-60")}>
-            <Badge tono={RECHAZOS[resultado.codigo].tono}>{RECHAZOS[resultado.codigo].titulo}</Badge>
-            <p className="text-sm text-ink">{resultado.mensaje}</p>
-            {resultado.bloqueados && resultado.bloqueados.length > 0 && (
-              <ul className="flex flex-col gap-1 text-xs text-muted">
-                {resultado.bloqueados.map((b) => (
-                  <li key={b.eppId}>
-                    {b.nombre} <span className="text-faint">· renovable desde {fechaCorta(b.vigenteHasta)}</span>
-                  </li>
-                ))}
-              </ul>
+                {resultado.sinStock.length > 0 && (
+                  <p className="text-xs text-cyan">Sin stock: {resultado.sinStock.map((s) => s.nombre).join(", ")}</p>
+                )}
+                {resultado.comandoMotor && (
+                  <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
+                    <Badge tono="OK">
+                      Motor {resultado.comandoMotor.motor} · {resultado.comandoMotor.epp}
+                      {resultado.comandoMotor.simulado && " (simulado)"}
+                    </Badge>
+                    {veredicto ? (
+                      "error" in veredicto ? (
+                        <span className="text-xs text-cyan">{veredicto.error}</span>
+                      ) : (
+                        <Badge tono={veredicto.estado === "VERIFICADO" ? "OK" : "CRITICO"}>
+                          {veredicto.estado === "VERIFICADO" ? "Uso verificado" : "Incumplimiento EHS"} · {veredicto.entregas} EPP
+                        </Badge>
+                      )
+                    ) : simulacionCamara ? (
+                      <>
+                        <button
+                          type="button"
+                          disabled={pendiente}
+                          onClick={() => enviarVeredicto(resultado.comandoMotor!.entregaId, true)}
+                          className="rounded-lg border border-green/50 px-2.5 py-1 text-xs text-green transition-colors duration-150 hover:bg-green/10"
+                        >
+                          Cámara: se lo colocó
+                        </button>
+                        <button
+                          type="button"
+                          disabled={pendiente}
+                          onClick={() => enviarVeredicto(resultado.comandoMotor!.entregaId, false)}
+                          className="rounded-lg border border-cyan/50 px-2.5 py-1 text-xs text-cyan transition-colors duration-150 hover:bg-cyan/10"
+                        >
+                          Cámara: no se lo colocó
+                        </button>
+                      </>
+                    ) : (
+                      <Badge tono="PENDIENTE">Esperando cámara</Badge>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-white">{resultado.mensaje}</p>
+                {resultado.bloqueados && resultado.bloqueados.length > 0 && <ListaBloqueados bloqueados={resultado.bloqueados} />}
+              </>
             )}
           </div>
         )}
       </div>
-    </Card>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Pantalla completa (modo kiosco): para leerse desde lejos
+// ─────────────────────────────────────────────
+
+const REINICIO_MS = 7000;
+
+function Reloj() {
+  const [hora, setHora] = useState("");
+  useEffect(() => {
+    const f = () =>
+      setHora(new Intl.DateTimeFormat("es-EC", { timeZone: "America/Guayaquil", hour: "2-digit", minute: "2-digit" }).format(new Date()));
+    f();
+    const t = setInterval(f, 15_000);
+    return () => clearInterval(t);
+  }, []);
+  return <span className="font-mono text-2xl text-muted">{hora}</span>;
+}
+
+export function KioscoPantalla({
+  estacion,
+  nombreEstacion,
+  logo,
+}: {
+  estacion: string;
+  nombreEstacion: ReactNode;
+  /** Escudo de marca (se resuelve en el servidor). */
+  logo?: ReactNode;
+}) {
+  const [rfid, setRfid] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { resultado, setResultado, pendiente, dispensar } = useDispensacion(estacion);
+
+  // El lector USB "teclea" el UID + Enter: el campo debe tener el foco siempre.
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (document.activeElement !== inputRef.current) inputRef.current?.focus();
+    }, 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Vuelve a la pantalla de espera tras unos segundos.
+  useEffect(() => {
+    if (!resultado) return;
+    const t = setTimeout(() => setResultado(null), REINICIO_MS);
+    return () => clearTimeout(t);
+  }, [resultado, setResultado]);
+
+  const vista = resultado ? clasificar(resultado) : null;
+  const pres = vista ? PRESENTACION[vista.clase] : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col overflow-auto bg-night font-display">
+      {/* Fondo de marca */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_0%_0%,color-mix(in_srgb,var(--color-cyan)_18%,transparent),transparent_45%),radial-gradient(circle_at_100%_100%,color-mix(in_srgb,var(--color-cyan)_14%,transparent),transparent_45%)]"
+      />
+
+      <header className="relative flex items-center justify-between px-8 py-6">
+        <div className="flex items-center gap-4">
+          {logo}
+          <Wordmark className="text-3xl" />
+          <span className="font-mono text-sm text-muted">{nombreEstacion}</span>
+        </div>
+        <div className="flex items-center gap-6">
+          <Reloj />
+          <Link
+            href="/"
+            className="flex items-center gap-2 rounded-xl border border-line px-4 py-2 text-sm text-muted transition-colors duration-200 hover:border-cyan/50 hover:text-white"
+          >
+            <X className="size-4" aria-hidden /> Salir del kiosco
+          </Link>
+        </div>
+      </header>
+
+      <main aria-live="assertive" className="relative flex flex-1 items-center justify-center px-8 pb-12">
+        {!resultado || !pres || !vista ? (
+          <div className="flex flex-col items-center gap-8 text-center">
+            <span className="grid size-44 place-items-center rounded-full border-2 border-cyan/50 bg-cyan/10 text-cyan shadow-glow-cyan">
+              {pendiente ? <Clock className="size-20 animate-pulse" aria-hidden /> : <ScanLine className="size-20" aria-hidden />}
+            </span>
+            <div>
+              <p className="text-6xl font-bold tracking-tight text-white">{pendiente ? "Validando…" : "Acerque su credencial"}</p>
+              <p className="mt-4 text-2xl text-muted">El EPP de su turno se entrega a la altura de su mano.</p>
+            </div>
+          </div>
+        ) : (
+          <div className={cx("w-full max-w-4xl rounded-[2rem] border-2 p-12 text-center", pres.fondo)}>
+            <pres.icono className={cx("mx-auto size-32", pres.texto)} strokeWidth={1.5} aria-hidden />
+            <p className={cx("mt-6 text-7xl font-bold tracking-[0.06em]", pres.texto)}>{pres.etiqueta}</p>
+            {resultado.ok ? (
+              <>
+                <p className="mt-4 text-4xl font-semibold text-white">{resultado.operario.nombre}</p>
+                <p className="mt-6 text-2xl text-muted">Retire su EPP:</p>
+                <p className="mt-2 text-3xl font-semibold text-white">{resultado.entregas.map((e) => e.nombre).join(" · ")}</p>
+                {resultado.bloqueados.length > 0 && (
+                  <p className="mt-6 font-mono text-lg text-muted">
+                    Aún vigente: {resultado.bloqueados.map((b) => b.nombre).join(", ")}
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="mt-4 text-4xl font-semibold text-white">{vista.titulo}</p>
+                <p className="mt-4 text-2xl text-muted">{resultado.mensaje}</p>
+              </>
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* El lector USB escribe aquí el UID + Enter (siempre montado: el siguiente operario no espera). */}
+      <footer className="relative flex justify-center pb-10">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            dispensar(rfid, () => setRfid(""));
+          }}
+        >
+          <input
+            ref={inputRef}
+            value={rfid}
+            onChange={(e) => setRfid(e.target.value.toUpperCase())}
+            placeholder="UID de la credencial"
+            aria-label="UID de la credencial"
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+            className="w-96 max-w-[80vw] rounded-xl border border-line bg-white/5 px-4 py-3 text-center font-mono text-xl tracking-[0.2em] text-white placeholder:tracking-normal placeholder:text-faint focus:border-cyan/60"
+          />
+        </form>
+      </footer>
+    </div>
   );
 }

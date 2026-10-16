@@ -41,7 +41,7 @@ if (!chatId) {
 
 const envio = await api("sendMessage", {
   chat_id: chatId,
-  text: "✅ OMEGATRON conectado: las alertas EHS llegarán a este chat.",
+  text: "✅ HARKAI conectado: las alertas EHS llegarán a este chat.",
 });
 if (!envio.ok) {
   console.error(`❌ No se pudo enviar al chat ${chatId}: ${envio.description}`);

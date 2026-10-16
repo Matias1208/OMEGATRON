@@ -45,3 +45,4 @@ next-env.d.ts
 
 # credenciales del firmware ESP32
 hardware/esp32/**/secrets.h
+/.next-check/

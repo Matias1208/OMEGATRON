@@ -16,7 +16,7 @@ export default function ErrorPagina({ error, reset }: { error: Error & { digest?
       <button
         type="button"
         onClick={reset}
-        className="rounded-md border border-line-strong bg-surface-2 px-3 py-1.5 text-sm text-ink transition-colors hover:border-accent/50 hover:text-accent"
+        className="rounded-xl border border-cyan/50 px-4 py-2 text-sm font-medium text-cyan transition-all duration-200 hover:bg-cyan/10 hover:shadow-glow-cyan"
       >
         Reintentar
       </button>

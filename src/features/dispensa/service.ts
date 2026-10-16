@@ -15,6 +15,9 @@ import type {
   ResultadoDispensacion,
 } from "./types";
 
+/** Desactiva el bloqueo por vida útil (retiro excesivo). Solo para pruebas. */
+export const modoPruebas = () => process.env.MODO_PRUEBAS === "true";
+
 // Un segundo toque de la tarjeta dentro de este margen es rebote del lector, no un intento de abuso.
 const MARGEN_REBOTE_MS = 2 * 60 * 1000;
 
@@ -81,7 +84,9 @@ export async function ejecutarDispensacion({
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${operario.id}))`;
 
       const ahora = new Date();
-      const vigentes = await tx.entrega.findMany({
+      // MODO_PRUEBAS: sin límite por vida útil, para probar con pocas credenciales.
+      // Nunca activarlo en la demo real ni en producción.
+      const vigentes = modoPruebas() ? [] : await tx.entrega.findMany({
         where: {
           operarioId: operario.id,
           eppId: { in: requeridos.map((r) => r.eppId) },

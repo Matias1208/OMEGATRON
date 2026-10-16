@@ -1,29 +1,33 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import { AppShell } from "./_components/app-shell";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Primaria: titulares, KPIs y kiosco.
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-space-grotesk",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+// Secundaria: logs, RFID, IDs y timestamps.
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
   title: {
-    default: "OMEGATRON · Estación inteligente de EPP",
-    template: "%s · OMEGATRON",
+    default: "HARKAI · Control inteligente de EPP",
+    template: "%s · HARKAI",
   },
   description:
-    "Dispensación de EPP por RFID con control de vida útil, inventario por lotes, verificación por cámara y alertas EHS en tiempo real.",
+    "HARKAI: dispensación de EPP por credencial RFID con control de vida útil, inventario por lotes, verificación por cámara y alertas EHS.",
 };
 
 export const viewport: Viewport = {
-  themeColor: "#070b10",
+  themeColor: "#030b1a", // = --color-night (los metadatos no aceptan variables CSS)
   colorScheme: "dark",
 };
 
@@ -34,7 +38,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
+      <body className={`${spaceGrotesk.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
         <AppShell>{children}</AppShell>
       </body>
     </html>
