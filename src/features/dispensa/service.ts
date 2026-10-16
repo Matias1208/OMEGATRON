@@ -2,7 +2,7 @@ import { after } from "next/server";
 import { EstadoEntrega, TipoAlerta } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { calcularVenceUso } from "@/lib/fechas";
-import { registrarAlerta, verificarStockBajo } from "@/features/alertas/service";
+import { registrarAlerta, resolverAlertasVidaUtil, verificarStockBajo } from "@/features/alertas/service";
 import { descontarStockFEFO } from "@/features/inventario/stock";
 import { ESTADOS_EN_USO } from "./estados";
 import { dispensacionSchema } from "./schemas";
@@ -70,7 +70,7 @@ export async function ejecutarDispensacion({
 
     // 2. Turno/tarea actual y reglas de EPP
     const asignacion = await obtenerAsignacionActual(operario.id);
-    const requeridos = await obtenerEppRequerido(operario.cargoId, asignacion?.tareaId ?? null);
+    const requeridos = await obtenerEppRequerido(operario.cargoId, asignacion?.tarea.id ?? null);
     if (requeridos.length === 0) {
       return rechazo("SIN_EPP_ASIGNADO", "No hay EPP configurado para tu cargo/tarea de hoy.");
     }
@@ -125,7 +125,7 @@ export async function ejecutarDispensacion({
             loteId: lote.id,
             estacionId: estacion.id,
             areaId: area.id,
-            asignacionId: asignacion?.id,
+            asignacionId: asignacion?.asignacionId,
             cantidad: epp.cantidad,
             costoUnitario: epp.costoUnitario,
             costoTotal,
@@ -156,6 +156,9 @@ export async function ejecutarDispensacion({
 
     // Alertas después de responder: el kiosco no espera a Telegram.
     if (inventarioIds.length > 0) after(() => verificarStockBajo(inventarioIds));
+    if (entregas.length > 0) {
+      after(() => resolverAlertasVidaUtil(operario.id, entregas.map((e) => e.eppId)));
+    }
 
     if (entregas.length === 0) {
       if (bloqueados.length > 0) {
@@ -184,7 +187,8 @@ export async function ejecutarDispensacion({
       tarea: asignacion
         ? { id: asignacion.tarea.id, nombre: asignacion.tarea.nombre, nivelRiesgo: asignacion.tarea.nivelRiesgo }
         : null,
-      turno: asignacion?.turno.nombre ?? null,
+      turno: asignacion?.turno ?? null,
+      origenTarea: asignacion?.origen ?? null,
       entregas,
       bloqueados,
       sinStock,

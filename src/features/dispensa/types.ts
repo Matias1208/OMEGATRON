@@ -1,4 +1,12 @@
-import type { NivelRiesgo, TipoEPP } from "@prisma/client";
+import type { NivelRiesgo, Tarea, TipoEPP } from "@prisma/client";
+
+/** Turno/tarea que rige la dispensación (ver obtenerAsignacionActual). */
+export type AsignacionVigente = {
+  asignacionId: string | null; // null si viene de la tarea habitual (no se vincula a un día pasado)
+  tarea: Tarea;
+  turno: string;
+  origen: "TURNO_ACTUAL" | "TAREA_HABITUAL";
+};
 
 export type OrigenRegla = "CARGO" | "TAREA" | "CARGO+TAREA";
 
@@ -44,6 +52,8 @@ export type CodigoRechazo =
   | "SIN_EPP_ASIGNADO"
   | "RETIRO_EXCESIVO"
   | "SIN_STOCK"
+  | "ESTACION_SIN_AREA"
+  | "HARDWARE_NO_DISPONIBLE"
   | "ERROR_INTERNO";
 
 export type ResultadoDispensacion =
@@ -54,10 +64,13 @@ export type ResultadoDispensacion =
       estacion: { id: string; codigo: string };
       tarea: { id: string; nombre: string; nivelRiesgo: NivelRiesgo } | null;
       turno: string | null;
+      origenTarea: AsignacionVigente["origen"] | null;
       entregas: EntregaCreada[];
       /** EPP requeridos que no se entregan porque el operario aún tiene uno vigente. */
       bloqueados: EppBloqueado[];
       sinStock: EppSinStock[];
+      /** Orden enviada al motor (solo cuando la dispensación pasa por una estación física). */
+      comandoMotor?: { motor: number; entregaId: string; epp: string; simulado: boolean };
     }
   | {
       ok: false;

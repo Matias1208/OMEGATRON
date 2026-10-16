@@ -95,3 +95,49 @@ export async function verificarStockBajo(inventarioIds?: string[]): Promise<numb
   }
   return nuevas;
 }
+
+/**
+ * Resolución manual desde el dashboard (atendida por un supervisor).
+ * - STOCK_BAJO libera su dedupeKey: si nadie repone, el cron debe volver a avisar.
+ * - El resto (por lote, por entrega) la conserva: el supervisor ya la atendió y el cron no
+ *   debe repetir la misma alerta cada hora.
+ */
+export async function resolverAlertaPorId(id: string): Promise<boolean> {
+  try {
+    const alerta = await prisma.alerta.findUnique({ where: { id }, select: { estado: true, tipo: true } });
+    if (!alerta || alerta.estado !== EstadoAlerta.PENDIENTE) return false;
+
+    const { count } = await prisma.alerta.updateMany({
+      where: { id, estado: EstadoAlerta.PENDIENTE },
+      data: {
+        estado: EstadoAlerta.RESUELTA,
+        resueltaAt: new Date(),
+        ...(alerta.tipo === TipoAlerta.STOCK_BAJO && { dedupeKey: null }),
+      },
+    });
+    return count === 1;
+  } catch (error) {
+    console.error("[alertas] No se pudo resolver la alerta:", error);
+    return false;
+  }
+}
+
+/** El operario retiró de nuevo esos EPP: sus avisos de "vida útil cumplida" ya están atendidos. */
+export async function resolverAlertasVidaUtil(operarioId: string, eppIds: string[]) {
+  if (eppIds.length === 0) return;
+  try {
+    await prisma.alerta.updateMany({
+      where: {
+        tipo: TipoAlerta.VIDA_UTIL_VENCIDA,
+        estado: EstadoAlerta.PENDIENTE,
+        AND: [
+          { metadata: { path: ["operarioId"], equals: operarioId } },
+          { OR: eppIds.map((eppId) => ({ metadata: { path: ["eppId"], equals: eppId } })) },
+        ],
+      },
+      data: { estado: EstadoAlerta.RESUELTA, resueltaAt: new Date(), dedupeKey: null },
+    });
+  } catch (error) {
+    console.error("[alertas] No se pudieron resolver alertas de vida útil:", error);
+  }
+}

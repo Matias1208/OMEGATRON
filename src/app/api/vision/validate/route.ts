@@ -35,7 +35,12 @@ export async function POST(request: Request) {
     if (!resultado.ok) {
       return NextResponse.json({ ok: false, error: resultado.error }, { status: resultado.status });
     }
-    return NextResponse.json({ ok: true, entrega_id: resultado.entregaId, estado: resultado.estado });
+    return NextResponse.json({
+      ok: true,
+      entrega_id: resultado.entregaId,
+      estado: resultado.estado,
+      entregas_actualizadas: resultado.entregasActualizadas,
+    });
   } catch (error) {
     console.error("[api/vision/validate] Error:", error);
     return NextResponse.json({ ok: false, error: "Error interno" }, { status: 500 });

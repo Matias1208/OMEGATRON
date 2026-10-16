@@ -13,7 +13,8 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "postinstall": "prisma generate",
-    "firebase:env": "node scripts/firebase-env.mjs"
+    "firebase:env": "node scripts/firebase-env.mjs",
+    "telegram:test": "node --env-file=.env scripts/telegram-test.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

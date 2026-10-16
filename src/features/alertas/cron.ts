@@ -1,9 +1,9 @@
-import { TipoAlerta } from "@prisma/client";
+import { EstadoAlerta, TipoAlerta } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { sendTelegramAlert } from "@/lib/telegram";
 import { DIA_MS, fechaEcuador } from "@/lib/fechas";
 import { ESTADOS_EN_USO } from "@/features/dispensa/estados";
-import { registrarAlerta, verificarStockBajo } from "./service";
+import { registrarAlerta, resolverAlerta, verificarStockBajo } from "./service";
 
 // Los EPP desechables (vida útil corta) se renuevan solos en cada turno: no ameritan aviso.
 const VIDA_UTIL_MINIMA_AVISO_DIAS = 7;
@@ -72,26 +72,46 @@ export async function verificarVidaUtilCumplida(): Promise<number> {
   return nuevas.length;
 }
 
-/** Lotes con stock que vencen en los próximos días: hay que usarlos primero o retirarlos. */
+/**
+ * Lotes con stock que vencen en los próximos días (usarlos primero) o que ya vencieron
+ * (FEFO ya no los entrega: hay que retirarlos físicamente del dispensador).
+ * Cierra solas las alertas de lotes que ya no tienen stock.
+ */
 export async function verificarLotesPorVencer(): Promise<number> {
   const hoy = fechaEcuador();
   const lotes = await prisma.lote.findMany({
-    where: { stockActual: { gt: 0 }, fechaVencimiento: { gte: hoy, lte: fechaEcuador(DIAS_AVISO_LOTE) } },
+    where: { stockActual: { gt: 0 }, fechaVencimiento: { lte: fechaEcuador(DIAS_AVISO_LOTE) } },
     include: { inventario: { include: { epp: { select: { nombre: true } }, estacion: { select: { codigo: true } } } } },
   });
 
   let nuevas = 0;
   for (const lote of lotes) {
     const dias = Math.round((lote.fechaVencimiento!.getTime() - hoy.getTime()) / DIA_MS);
+    const vencido = dias < 0;
+    const donde = `${lote.inventario.epp.nombre} lote ${lote.codigo} (${lote.inventario.estacion.codigo}, compartimento #${lote.inventario.slotMotor})`;
     const r = await registrarAlerta({
       tipo: TipoAlerta.LOTE_POR_VENCER,
-      dedupeKey: `LOTE_POR_VENCER:${lote.id}`,
-      mensaje:
-        `⏳ LOTE POR VENCER: ${lote.inventario.epp.nombre} lote ${lote.codigo} (${lote.inventario.estacion.codigo}) ` +
-        `vence en ${dias} día(s) con ${lote.stockActual} u. en stock.`,
+      dedupeKey: `${vencido ? "LOTE_VENCIDO" : "LOTE_POR_VENCER"}:${lote.id}`,
+      mensaje: vencido
+        ? `⛔ LOTE VENCIDO: ${donde} venció hace ${-dias} día(s) con ${lote.stockActual} u. Retirarlo del dispensador.`
+        : `⏳ LOTE POR VENCER: ${donde} vence en ${dias} día(s) con ${lote.stockActual} u. en stock.`,
       metadata: { loteId: lote.id, stockActual: lote.stockActual, dias },
     });
     if (r?.nueva) nuevas++;
+  }
+
+  // Lotes que se agotaron: su alerta de vencimiento ya no aplica.
+  const pendientes = await prisma.alerta.findMany({
+    where: { tipo: TipoAlerta.LOTE_POR_VENCER, estado: EstadoAlerta.PENDIENTE, dedupeKey: { not: null } },
+    select: { dedupeKey: true },
+  });
+  const conStock = new Set(lotes.map((l) => l.id));
+  for (const { dedupeKey } of pendientes) {
+    const loteId = dedupeKey!.split(":")[1];
+    if (loteId && !conStock.has(loteId)) {
+      const lote = await prisma.lote.findUnique({ where: { id: loteId }, select: { stockActual: true } });
+      if (!lote || lote.stockActual === 0) await resolverAlerta(dedupeKey!);
+    }
   }
   return nuevas;
 }
