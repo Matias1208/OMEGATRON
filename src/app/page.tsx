@@ -156,6 +156,7 @@ export default async function CentroDeControl({
             <Badge tono={d.integraciones.firebase ? "OK" : "ATENCION"}>Firebase{d.integraciones.firebase ? "" : " · sin configurar"}</Badge>
             <Badge tono={d.integraciones.telegram ? "OK" : "ATENCION"}>Telegram{d.integraciones.telegram ? "" : " · sin configurar"}</Badge>
             {d.integraciones.hardwareSimulado && <Badge tono="ACENTO">Hardware simulado</Badge>}
+            {d.integraciones.modoPruebas && <Badge tono="CRITICO">Modo pruebas · sin límite de EPP</Badge>}
           </div>
         </div>
 
