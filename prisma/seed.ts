@@ -171,7 +171,7 @@ async function main() {
     data: { nombre: "Pedro Inactivo", cedula: "1767890123", rfid: "FFFFFFFF", cargoId: cargoAux.id, activo: false },
   });
 
-  // ── Historial de 30 días (para el dashboard) ──
+  // ── Historial de 60 días (el dashboard compara 30 días contra los 30 anteriores) ──
   const reglasTarea = await prisma.tareaEPP.findMany();
   const reglasCargo = await prisma.cargoEPP.findMany();
   const eppPorId = Object.fromEntries(Object.values(epps).map((e) => [e.id, e]));
@@ -179,7 +179,7 @@ async function main() {
 
   const TOLERANCIA_MS = 2 * 60 * 60 * 1000; // igual que calcularVenceUso en src/lib/fechas.ts
   const historial = [];
-  for (let d = 30; d >= 1; d--) {
+  for (let d = 60; d >= 1; d--) {
     for (const { op, tarea, turno } of operarios) {
       if (rand() < 0.15) continue; // días libres
       const asignacion = await prisma.asignacionTurno.create({

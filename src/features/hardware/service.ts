@@ -23,6 +23,12 @@ export async function enviarComandoMotor(estacionId: string, entrega: EntregaCre
     trigger: Math.random(),
   };
 
+  // Modo simulado: permite probar el flujo completo sin Firebase ni ESP32 conectados.
+  if (process.env.HARDWARE_SIMULADO === "true") {
+    console.log(`[hardware simulado] /estaciones/${estacionId}/comando ←`, comando);
+    return comando;
+  }
+
   // El HTTPClient de la ESP32 corta a los 5 s por defecto: hay que responder antes.
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {

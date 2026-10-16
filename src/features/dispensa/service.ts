@@ -15,6 +15,9 @@ import type {
   ResultadoDispensacion,
 } from "./types";
 
+// Un segundo toque de la tarjeta dentro de este margen es rebote del lector, no un intento de abuso.
+const MARGEN_REBOTE_MS = 2 * 60 * 1000;
+
 function rechazo(codigo: CodigoRechazo, mensaje: string, extra?: Partial<ResultadoDispensacion>) {
   return { ok: false, codigo, mensaje, ...extra } as ResultadoDispensacion;
 }
@@ -87,7 +90,7 @@ export async function ejecutarDispensacion({
         },
         orderBy: { venceUso: "desc" },
         distinct: ["eppId"],
-        select: { eppId: true, venceUso: true },
+        select: { eppId: true, venceUso: true, fecha: true },
       });
       const vigentePorEpp = new Map(vigentes.map((v) => [v.eppId, v.venceUso]));
 
@@ -145,25 +148,29 @@ export async function ejecutarDispensacion({
         });
       }
 
-      return { bloqueados, sinStock, entregas, inventarioIds };
+      const reboteLector = vigentes.some((v) => ahora.getTime() - v.fecha.getTime() < MARGEN_REBOTE_MS);
+      return { bloqueados, sinStock, entregas, inventarioIds, reboteLector };
     });
 
-    const { bloqueados, sinStock, entregas, inventarioIds } = resultado;
+    const { bloqueados, sinStock, entregas, inventarioIds, reboteLector } = resultado;
 
     // Alertas después de responder: el kiosco no espera a Telegram.
     if (inventarioIds.length > 0) after(() => verificarStockBajo(inventarioIds));
 
     if (entregas.length === 0) {
       if (bloqueados.length > 0) {
-        // No hay nada nuevo que entregar: el operario intenta un retiro extra.
-        const listaEpp = bloqueados.map((b) => b.nombre).join(", ");
-        after(() =>
-          registrarAlerta({
-            tipo: TipoAlerta.RETIRO_EXCESIVO,
-            mensaje: `⚠️ ALERTA: El operario ${operario.nombre} intentó retirar ${listaEpp} extra en el área ${area.nombre}. Retiro bloqueado.`,
-            metadata: { operarioId: operario.id, areaId: area.id, bloqueados },
-          }),
-        );
+        // No hay nada nuevo que entregar: el operario intenta un retiro extra
+        // (salvo que acabe de retirar: entonces es rebote del lector y no se alerta).
+        if (!reboteLector) {
+          const listaEpp = bloqueados.map((b) => b.nombre).join(", ");
+          after(() =>
+            registrarAlerta({
+              tipo: TipoAlerta.RETIRO_EXCESIVO,
+              mensaje: `⚠️ ALERTA: El operario ${operario.nombre} intentó retirar ${listaEpp} extra en el área ${area.nombre}. Retiro bloqueado.`,
+              metadata: { operarioId: operario.id, areaId: area.id, bloqueados },
+            }),
+          );
+        }
         return rechazo("RETIRO_EXCESIVO", "Ya tienes tu EPP vigente. Retiro bloqueado.", { bloqueados, sinStock });
       }
       return rechazo("SIN_STOCK", "No hay stock disponible del EPP requerido.", { bloqueados, sinStock });

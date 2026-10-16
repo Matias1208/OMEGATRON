@@ -137,7 +137,9 @@ function kpiInventario(
     variacionPct: null,
     estado,
     lectura:
-      `${sobreMinimo} de ${total} EPP sobre stock mínimo` +
+      (bajoMinimo.length
+        ? `${bajoMinimo.length} de ${total} EPP bajo stock mínimo (${bajoMinimo.map((i) => i.epp).join(", ")})`
+        : `Los ${total} EPP están sobre su stock mínimo`) +
       (coberturaBaja.length ? `; ${coberturaBaja.length} con menos de ${METAS.inventario.coberturaMinimaDias} días de cobertura` : "") +
       (lotesPorVencer ? `; ${lotesPorVencer} lote(s) por vencer` : "") +
       ".",
@@ -170,8 +172,8 @@ function nivel1(kpis: KpiEstrategico[]): Nivel1 {
     estado: prioritario.estado,
     titular:
       `${prioritario.titulo} ${prioritario.estado === "CRITICO" ? "requiere acción inmediata" : "requiere atención"}: ` +
-      `${prioritario.lectura}` +
-      (enRiesgo > 1 ? ` (${enRiesgo} de 3 pilares fuera de meta)` : ""),
+      prioritario.lectura.replace(/\.$/, "") +
+      (enRiesgo > 1 ? ` (${enRiesgo} de 3 pilares fuera de meta).` : "."),
     decisionPrioritaria: prioritario.accion,
     pilarPrioritario: prioritario.pilar,
   };
