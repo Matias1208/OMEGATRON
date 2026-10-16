@@ -28,6 +28,7 @@ export type EntregaCreada = {
   eppId: string;
   codigo: string;
   nombre: string;
+  tipo: TipoEPP;
   cantidad: number;
   slotMotor: number;
   loteCodigo: string;

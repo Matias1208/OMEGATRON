@@ -12,7 +12,8 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "firebase:env": "node scripts/firebase-env.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
