@@ -1,12 +1,12 @@
 const TELEGRAM_API = "https://api.telegram.org";
 
 /**
- * Envía un mensaje de texto al chat configurado. Nunca lanza: una caída de Telegram
- * no debe bloquear una dispensación. Devuelve true si Telegram aceptó el mensaje.
+ * Envía un mensaje de texto al chat de supervisión (o a `chatId` si se indica, p.ej. el
+ * chat personal de un operario). Nunca lanza: una caída de Telegram no debe bloquear una
+ * dispensación. Devuelve true si Telegram aceptó el mensaje.
  */
-export async function sendTelegramAlert(message: string): Promise<boolean> {
+export async function sendTelegramAlert(message: string, chatId = process.env.TELEGRAM_CHAT_ID): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
 
   if (!token || !chatId) {
     console.warn("[telegram] TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID no configurados. Mensaje:", message);

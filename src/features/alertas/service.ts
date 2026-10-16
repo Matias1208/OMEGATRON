@@ -9,25 +9,27 @@ type NuevaAlerta = {
   /** Si se indica, no se crea (ni se reenvía) otra alerta PENDIENTE con la misma clave. */
   dedupeKey?: string;
   metadata?: Prisma.InputJsonValue;
+  /** false = solo persistir (el llamador envía un resumen consolidado). */
+  telegram?: boolean;
 };
 
 /**
  * Persiste la alerta y la envía por Telegram. Nunca lanza: las alertas son
  * efectos secundarios y no deben tumbar el flujo principal.
+ * `nueva` es false si ya existía una alerta pendiente con la misma dedupeKey.
  */
-export async function registrarAlerta({ tipo, mensaje, dedupeKey, metadata }: NuevaAlerta) {
+export async function registrarAlerta({ tipo, mensaje, dedupeKey, metadata, telegram = true }: NuevaAlerta) {
   try {
     if (dedupeKey) {
       const existente = await prisma.alerta.findUnique({ where: { dedupeKey } });
-      if (existente) return existente;
+      if (existente) return { alerta: existente, nueva: false };
     }
 
     const alerta = await prisma.alerta.create({ data: { tipo, mensaje, dedupeKey, metadata } });
-    const enviada = await sendTelegramAlert(mensaje);
-    if (enviada) {
+    if (telegram && (await sendTelegramAlert(mensaje))) {
       await prisma.alerta.update({ where: { id: alerta.id }, data: { enviadaTelegram: true } });
     }
-    return alerta;
+    return { alerta, nueva: true };
   } catch (error) {
     // P2002: otra petición concurrente creó la misma alerta deduplicada; no es un error real.
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return null;
@@ -48,13 +50,18 @@ export async function resolverAlerta(dedupeKey: string) {
   }
 }
 
-/** Revisa el stock vigente (sin lotes vencidos) de los inventarios indicados y alerta si cae bajo el mínimo. */
-export async function verificarStockBajo(inventarioIds: string[]) {
-  if (inventarioIds.length === 0) return;
+/**
+ * Revisa el stock vigente (sin lotes vencidos) y alerta si cae bajo el mínimo; si se
+ * repuso, resuelve la alerta. Sin argumentos revisa todos los inventarios.
+ * Devuelve cuántas alertas nuevas se crearon.
+ */
+export async function verificarStockBajo(inventarioIds?: string[]): Promise<number> {
+  if (inventarioIds?.length === 0) return 0;
+  let nuevas = 0;
   try {
     const hoy = fechaEcuador();
     const inventarios = await prisma.inventario.findMany({
-      where: { id: { in: inventarioIds } },
+      where: inventarioIds ? { id: { in: inventarioIds } } : undefined,
       include: {
         epp: { select: { nombre: true } },
         estacion: { select: { codigo: true, nombre: true } },
@@ -69,18 +76,22 @@ export async function verificarStockBajo(inventarioIds: string[]) {
       const stock = inv.lotes.reduce((acc, l) => acc + l.stockActual, 0);
       const dedupeKey = `STOCK_BAJO:${inv.id}`;
 
-      if (stock < inv.stockMinimo) {
-        await registrarAlerta({
-          tipo: TipoAlerta.STOCK_BAJO,
-          dedupeKey,
-          mensaje:
-            `📉 STOCK BAJO: ${inv.epp.nombre} en ${inv.estacion.nombre} (${inv.estacion.codigo}). ` +
-            `Quedan ${stock} u. (mínimo ${inv.stockMinimo}). Reponer compartimento #${inv.slotMotor}.`,
-          metadata: { inventarioId: inv.id, stock, stockMinimo: inv.stockMinimo },
-        });
+      if (stock >= inv.stockMinimo) {
+        await resolverAlerta(dedupeKey);
+        continue;
       }
+      const r = await registrarAlerta({
+        tipo: TipoAlerta.STOCK_BAJO,
+        dedupeKey,
+        mensaje:
+          `📉 STOCK BAJO: ${inv.epp.nombre} en ${inv.estacion.nombre} (${inv.estacion.codigo}). ` +
+          `Quedan ${stock} u. (mínimo ${inv.stockMinimo}). Reponer compartimento #${inv.slotMotor}.`,
+        metadata: { inventarioId: inv.id, stock, stockMinimo: inv.stockMinimo },
+      });
+      if (r?.nueva) nuevas++;
     }
   } catch (error) {
     console.error("[alertas] Error verificando stock bajo:", error);
   }
+  return nuevas;
 }

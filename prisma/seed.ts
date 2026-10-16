@@ -164,7 +164,7 @@ async function main() {
     await prisma.asignacionTurno.create({
       data: { fecha: hoy, operarioId: op.id, turnoId: turno.id, tareaId: tarea.id, areaId: data.areaId },
     });
-    operarios.push({ op, tarea });
+    operarios.push({ op, tarea, turno });
   }
   // Operario inactivo para probar el rechazo
   await prisma.operario.create({
@@ -177,11 +177,19 @@ async function main() {
   const eppPorId = Object.fromEntries(Object.values(epps).map((e) => [e.id, e]));
   const ultimaEntrega = new Map<string, number>(); // `${opId}:${eppId}` → ms
 
+  const TOLERANCIA_MS = 2 * 60 * 60 * 1000; // igual que calcularVenceUso en src/lib/fechas.ts
   const historial = [];
   for (let d = 30; d >= 1; d--) {
-    for (const { op, tarea } of operarios) {
+    for (const { op, tarea, turno } of operarios) {
       if (rand() < 0.15) continue; // días libres
-      const fecha = new Date(fechaEcuador(-d).getTime() + (11 + Math.floor(rand() * 6)) * 60 * 60 * 1000);
+      const asignacion = await prisma.asignacionTurno.create({
+        data: { fecha: fechaEcuador(-d), operarioId: op.id, turnoId: turno.id, tareaId: tarea.id, areaId: op.areaId },
+      });
+      // Retira al inicio de su turno (hora Ecuador = UTC-5) con unos minutos de variación.
+      const horaInicio = Number(turno.horaInicio.slice(0, 2));
+      const fecha = new Date(
+        fechaEcuador(-d).getTime() + (horaInicio + 5) * 60 * 60 * 1000 + Math.floor(rand() * 40) * 60 * 1000,
+      );
       const eppIds = new Set([
         ...reglasCargo.filter((r) => r.cargoId === op.cargoId).map((r) => r.eppId),
         ...reglasTarea.filter((r) => r.tareaId === tarea.id).map((r) => r.eppId),
@@ -190,7 +198,7 @@ async function main() {
         const epp = eppPorId[eppId];
         const clave = `${op.id}:${eppId}`;
         const previa = ultimaEntrega.get(clave);
-        if (previa && fecha.getTime() < previa + epp.vidaUtilDias * DIA_MS) continue; // respeta vida útil
+        if (previa && fecha.getTime() < previa + epp.vidaUtilDias * DIA_MS - TOLERANCIA_MS) continue; // respeta vida útil
         ultimaEntrega.set(clave, fecha.getTime());
         const costo = Number(epp.costoUnitario);
         historial.push({
@@ -200,11 +208,12 @@ async function main() {
           loteId: lotesPorEpp[epp.codigo],
           estacionId: estacion.id,
           areaId: op.areaId!,
+          asignacionId: asignacion.id,
           cantidad: 1,
           costoUnitario: costo,
           costoTotal: costo,
           estado: rand() < 0.06 ? EstadoEntrega.INCUMPLIMIENTO_EHS : EstadoEntrega.VERIFICADO,
-          venceUso: new Date(fecha.getTime() + epp.vidaUtilDias * DIA_MS),
+          venceUso: new Date(fecha.getTime() + epp.vidaUtilDias * DIA_MS - TOLERANCIA_MS),
         });
       }
     }

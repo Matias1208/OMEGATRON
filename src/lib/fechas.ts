@@ -21,3 +21,12 @@ export function enTurno(hora: string, inicio: string, fin: string): boolean {
 export function sumarDias(fecha: Date, dias: number): Date {
   return new Date(fecha.getTime() + dias * DIA_MS);
 }
+
+// Margen para que un EPP de 1 día se pueda renovar al día siguiente aunque el operario
+// pase la tarjeta un poco más temprano que la víspera.
+export const TOLERANCIA_RENOVACION_MS = 2 * 60 * 60 * 1000;
+
+/** Momento a partir del cual el operario puede volver a retirar el mismo EPP. */
+export function calcularVenceUso(entrega: Date, vidaUtilDias: number): Date {
+  return new Date(entrega.getTime() + vidaUtilDias * DIA_MS - TOLERANCIA_RENOVACION_MS);
+}

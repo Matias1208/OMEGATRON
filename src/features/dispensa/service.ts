@@ -1,9 +1,10 @@
 import { after } from "next/server";
 import { EstadoEntrega, TipoAlerta } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { sumarDias } from "@/lib/fechas";
+import { calcularVenceUso } from "@/lib/fechas";
 import { registrarAlerta, verificarStockBajo } from "@/features/alertas/service";
 import { descontarStockFEFO } from "@/features/inventario/stock";
+import { ESTADOS_EN_USO } from "./estados";
 import { dispensacionSchema } from "./schemas";
 import { obtenerAsignacionActual, obtenerEppRequerido } from "./queries";
 import type {
@@ -13,13 +14,6 @@ import type {
   EppSinStock,
   ResultadoDispensacion,
 } from "./types";
-
-// Estados que cuentan como "el operario tiene el EPP en su poder".
-const ESTADOS_EN_USO = [
-  EstadoEntrega.PENDIENTE_VERIFICACION_CAMARA,
-  EstadoEntrega.VERIFICADO,
-  EstadoEntrega.INCUMPLIMIENTO_EHS,
-];
 
 function rechazo(codigo: CodigoRechazo, mensaje: string, extra?: Partial<ResultadoDispensacion>) {
   return { ok: false, codigo, mensaje, ...extra } as ResultadoDispensacion;
@@ -134,7 +128,7 @@ export async function ejecutarDispensacion({
             costoTotal,
             estado: EstadoEntrega.PENDIENTE_VERIFICACION_CAMARA,
             fecha: ahora,
-            venceUso: sumarDias(ahora, epp.vidaUtilDias),
+            venceUso: calcularVenceUso(ahora, epp.vidaUtilDias),
           },
         });
 
