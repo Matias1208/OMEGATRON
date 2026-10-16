@@ -1,12 +1,18 @@
 import Link from "next/link";
-import { EmptyState } from "./_components/ui";
+import { ShieldOff } from "lucide-react";
 
 export default function NoEncontrado() {
   return (
-    <div className="flex flex-col items-center gap-4 py-16">
-      <p className="font-mono text-5xl font-semibold text-accent">404</p>
-      <EmptyState titulo="Esta pantalla no existe" descripcion="Revisa la dirección o vuelve al centro de control." />
-      <Link href="/" className="text-sm text-accent hover:underline">
+    <div className="flex flex-col items-center gap-5 py-20 text-center">
+      <span className="grid size-20 place-items-center rounded-full border border-cyan/40 bg-cyan/10 text-cyan shadow-glow-cyan">
+        <ShieldOff className="size-9" aria-hidden />
+      </span>
+      <p className="font-display text-6xl font-bold tracking-tight text-white">404</p>
+      <p className="text-muted">Esta pantalla no existe en HARKAI.</p>
+      <Link
+        href="/"
+        className="rounded-xl bg-cyan px-5 py-2.5 font-display text-sm font-bold text-night transition-all duration-200 hover:shadow-glow-cyan"
+      >
         Ir al centro de control
       </Link>
     </div>
