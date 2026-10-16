@@ -18,7 +18,7 @@ npm run dev               # http://localhost:3000
 
 Otros scripts: `npm run db:studio` (explorar datos), `npm run db:seed`, `npm run db:down`.
 
-RFIDs de prueba del seed: `A1B2C3D4` (desinfección de quirófano), `B2C3D4E5` (oficinas), `D4E5F6A7` (operario industrial), `FFFFFFFF` (inactivo).
+RFIDs del seed: `D21CF01B` (María, desinfección de quirófano — tarjeta física), `097A5502` (Luis, oficinas — tarjeta física), `D4E5F6A7` (operario industrial), `FFFFFFFF` (inactivo).
 
 ## Estructura
 

@@ -150,8 +150,8 @@ async function main() {
 
   // ── Operarios (RFID en hex mayúsculas, como lo envía el lector MFRC522) ──
   const operariosData = [
-    { nombre: "María Quishpe", cedula: "1712345678", rfid: "A1B2C3D4", cargoId: cargoAux.id, areaId: areaHosp.id, tarea: tQuirofano, turno: turnoManana },
-    { nombre: "Luis Chiluisa", cedula: "1723456789", rfid: "B2C3D4E5", cargoId: cargoAux.id, areaId: areaOfi.id, tarea: tOficina, turno: turnoManana },
+    { nombre: "María Quishpe", cedula: "1712345678", rfid: "D21CF01B", cargoId: cargoAux.id, areaId: areaHosp.id, tarea: tQuirofano, turno: turnoManana },
+    { nombre: "Luis Chiluisa", cedula: "1723456789", rfid: "097A5502", cargoId: cargoAux.id, areaId: areaOfi.id, tarea: tOficina, turno: turnoManana },
     { nombre: "Ana Toapanta", cedula: "1734567890", rfid: "C3D4E5F6", cargoId: cargoAux.id, areaId: areaOfi.id, tarea: tBanos, turno: turnoTarde },
     { nombre: "Jorge Caiza", cedula: "1745678901", rfid: "D4E5F6A7", cargoId: cargoInd.id, areaId: areaPlanta.id, tarea: tDesengrase, turno: turnoManana },
     { nombre: "Carmen Guamán", cedula: "1756789012", rfid: "E5F6A7B8", cargoId: cargoSup.id, areaId: areaHosp.id, tarea: tQuirofano, turno: turnoNoche },
@@ -221,7 +221,7 @@ async function main() {
   await prisma.entrega.createMany({ data: historial });
 
   console.log(`✅ Seed OK: ${operarios.length + 1} operarios, ${Object.keys(epps).length} EPP, ${historial.length} entregas históricas`);
-  console.log("   RFIDs de prueba: A1B2C3D4 (quirófano), B2C3D4E5 (oficinas), D4E5F6A7 (industrial), FFFFFFFF (inactivo)");
+  console.log("   RFIDs: D21CF01B (María, quirófano - tarjeta física), 097A5502 (Luis, oficinas - tarjeta física), D4E5F6A7 (industrial), FFFFFFFF (inactivo)");
 }
 
 main()

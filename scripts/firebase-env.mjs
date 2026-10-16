@@ -14,6 +14,14 @@ if (sa.type !== "service_account" || !sa.private_key || !sa.client_email) {
   process.exit(1);
 }
 
+if (databaseUrl && !/^https:\/\/[a-z0-9-]+\.(firebaseio\.com|[a-z0-9-]+\.firebasedatabase\.app)\/?$/.test(databaseUrl)) {
+  console.error(
+    `URL de Realtime Database inválida: "${databaseUrl}".\n` +
+      "Cópiala de Consola Firebase > Realtime Database, p.ej. https://omegatron-hackathon-default-rtdb.firebaseio.com",
+  );
+  process.exit(1);
+}
+
 if (!existsSync(".env")) copyFileSync(".env.example", ".env");
 let env = readFileSync(".env", "utf8");
 
