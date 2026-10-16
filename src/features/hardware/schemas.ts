@@ -10,9 +10,7 @@ export const rfidRequestSchema = z.object({
     .regex(/^[A-Za-z0-9_-]{1,64}$/, "estacion_id inválido (use letras, números, - o _)"),
 });
 
-export type RfidRequest = z.infer<typeof rfidRequestSchema>;
-
-/** Lo que escucha la ESP32 en /estaciones/{estacion_id}/comando */
+/** Lo que escucha la ESP32 en /estaciones/{codigo de la estación}/comando */
 export type ComandoMotor = {
   motor: number;
   epp_id: string;
