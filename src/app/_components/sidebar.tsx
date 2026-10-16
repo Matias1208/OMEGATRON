@@ -17,7 +17,7 @@ export function Sidebar({ logoCompleto, logoEscudo }: { logoCompleto: ReactNode;
 
   return (
     <aside className="fixed inset-y-0 left-0 z-40 flex w-[76px] flex-col border-r border-line bg-night/80 backdrop-blur-xl lg:w-64">
-      <Link href="/" aria-label="HARKAI, centro de control" className="flex h-24 items-center justify-center px-4 lg:justify-start lg:px-6">
+      <Link href="/" aria-label="HARKAI, centro de control" className="flex items-center justify-center px-4 py-6">
         <span className="hidden lg:block">{logoCompleto}</span>
         <span className="lg:hidden">{logoEscudo}</span>
       </Link>

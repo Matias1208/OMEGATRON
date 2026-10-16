@@ -7,6 +7,7 @@ import { getDatosKiosco } from "@/features/dispensa/queries";
 import type { EstadoEntrega } from "@prisma/client";
 import { AreaSuave, BarrasFinas } from "./_components/charts";
 import { Gauge } from "./_components/gauge";
+import { Logo } from "./_components/logo";
 import { KioscoPanel, KioscoPantalla } from "./_components/kiosco-panel";
 import { Badge, Card, CardHeader, DataTable, Delta, EmptyState, ErrorState, StatCard, type Tono } from "./_components/ui";
 
@@ -56,7 +57,13 @@ export default async function CentroDeControl({
   if (kiosco === "1") {
     const est = d.estaciones.find((e) => e.codigo === estacionParam) ?? d.estaciones[0];
     if (!est) return <EmptyState titulo="No hay estaciones activas" descripcion="Registra una estación para usar el kiosco." />;
-    return <KioscoPantalla estacion={est.codigo} nombreEstacion={`${est.codigo} · ${est.area ?? est.nombre}`} />;
+    return (
+      <KioscoPantalla
+        estacion={est.codigo}
+        nombreEstacion={`${est.codigo} · ${est.area ?? est.nombre}`}
+        logo={<Logo variante="escudo" className="h-12" />}
+      />
+    );
   }
 
   const hasta = new Date();

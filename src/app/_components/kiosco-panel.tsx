@@ -353,7 +353,16 @@ function Reloj() {
   return <span className="font-mono text-2xl text-muted">{hora}</span>;
 }
 
-export function KioscoPantalla({ estacion, nombreEstacion }: { estacion: string; nombreEstacion: ReactNode }) {
+export function KioscoPantalla({
+  estacion,
+  nombreEstacion,
+  logo,
+}: {
+  estacion: string;
+  nombreEstacion: ReactNode;
+  /** Escudo de marca (se resuelve en el servidor). */
+  logo?: ReactNode;
+}) {
   const [rfid, setRfid] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const { resultado, setResultado, pendiente, dispensar } = useDispensacion(estacion);
@@ -386,6 +395,7 @@ export function KioscoPantalla({ estacion, nombreEstacion }: { estacion: string;
 
       <header className="relative flex items-center justify-between px-8 py-6">
         <div className="flex items-center gap-4">
+          {logo}
           <Wordmark className="text-3xl" />
           <span className="font-mono text-sm text-muted">{nombreEstacion}</span>
         </div>

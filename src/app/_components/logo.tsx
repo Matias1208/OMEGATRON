@@ -1,5 +1,3 @@
-import { existsSync } from "node:fs";
-import path from "node:path";
 import Image from "next/image";
 import { cx } from "./ui";
 import { Wordmark } from "./wordmark";
@@ -7,36 +5,29 @@ import { Wordmark } from "./wordmark";
 export { Wordmark };
 
 /**
- * Logo oficial de HARKAI (escudo cian con montaña + "HARK" blanco / "AI" cian).
- * NO se redibuja: se usan los archivos de marca colocados en public/brand/:
- *   - harkai-logo.(svg|png)    → versión completa (sidebar expandido)
- *   - harkai-escudo.(svg|png)  → solo el escudo (sidebar colapsado, favicon)
- * Mientras no existan, se muestra el nombre en texto con los colores de marca.
+ * Logo oficial de HARKAI (archivos de marca en public/brand/, no se redibujan):
+ *   - harkai-logo.png   (438×532) escudo + "HARKAI" → sidebar expandido
+ *   - harkai-escudo.png (158×193) solo el escudo     → sidebar colapsado, kiosco
+ * Se sirven como archivos estáticos: funciona igual en local y desplegado.
  */
-const ARCHIVOS = {
-  completo: ["harkai-logo.svg", "harkai-logo.png"],
-  escudo: ["harkai-escudo.svg", "harkai-escudo.png"],
-} as const;
-
-function buscar(variante: keyof typeof ARCHIVOS) {
-  const dir = path.join(process.cwd(), "public", "brand");
-  const archivo = ARCHIVOS[variante].find((a) => existsSync(path.join(dir, a)));
-  return archivo ? `/brand/${archivo}` : null;
-}
-
 export function Logo({ variante = "completo", className }: { variante?: "completo" | "escudo"; className?: string }) {
-  const src = buscar(variante);
-  if (src) {
-    return variante === "completo" ? (
-      <Image src={src} alt="HARKAI" width={168} height={64} priority className={cx("h-14 w-auto", className)} />
-    ) : (
-      <Image src={src} alt="HARKAI" width={40} height={40} priority className={cx("size-10", className)} />
-    );
-  }
-  // Sin archivo de marca todavía: solo texto (no se inventa el escudo).
   return variante === "completo" ? (
-    <Wordmark className={cx("text-2xl", className)} />
+    <Image
+      src="/brand/harkai-logo.png"
+      alt="HARKAI"
+      width={438}
+      height={532}
+      priority
+      className={cx("h-28 w-auto", className)}
+    />
   ) : (
-    <Wordmark className={cx("text-[11px] tracking-[0.05em]", className)} />
+    <Image
+      src="/brand/harkai-escudo.png"
+      alt="HARKAI"
+      width={158}
+      height={193}
+      priority
+      className={cx("h-10 w-auto", className)}
+    />
   );
 }
