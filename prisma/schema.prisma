@@ -1,0 +1,305 @@
+// OMEGATRON - Estación Inteligente de EPP
+// Hackathon Expo Clean Ecuador 2026 - Reto 5
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum NivelRiesgo {
+  BAJO
+  MEDIO
+  ALTO
+  CRITICO
+}
+
+enum TipoEPP {
+  GUANTES
+  MASCARILLA
+  RESPIRADOR
+  GAFAS
+  CALZADO
+  ROPA
+  PROTECCION_AUDITIVA
+  OTRO
+}
+
+enum EstadoEntrega {
+  PENDIENTE_VERIFICACION_CAMARA // dispensado, esperando veredicto de la cámara (edge Python)
+  VERIFICADO // la cámara confirmó que el operario se colocó el EPP
+  INCUMPLIMIENTO_EHS // retiró el EPP pero la cámara detectó que NO se lo colocó
+  FALLIDA // el hardware reportó error (stock se revierte)
+  ANULADA // anulada manualmente
+}
+
+enum TipoAlerta {
+  STOCK_BAJO
+  LOTE_POR_VENCER
+  VIDA_UTIL_VENCIDA
+  RETIRO_EXCESIVO
+  INCUMPLIMIENTO_EHS
+  FALLA_HARDWARE
+}
+
+enum EstadoAlerta {
+  PENDIENTE
+  RESUELTA
+}
+
+// ─────────────────────────────────────────────
+// Organización
+// ─────────────────────────────────────────────
+
+model Cliente {
+  id        String   @id @default(cuid())
+  nombre    String
+  ruc       String?  @unique
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  areas Area[]
+}
+
+model Area {
+  id        String @id @default(cuid())
+  nombre    String
+  clienteId String
+
+  cliente      Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  operarios    Operario[]
+  estaciones   Estacion[]
+  asignaciones AsignacionTurno[]
+  entregas     Entrega[]
+
+  @@unique([clienteId, nombre])
+}
+
+model Turno {
+  id         String @id @default(cuid())
+  nombre     String @unique
+  horaInicio String // "06:00" (hora local Ecuador)
+  horaFin    String // "14:00"
+
+  asignaciones AsignacionTurno[]
+}
+
+model Cargo {
+  id          String  @id @default(cuid())
+  nombre      String  @unique
+  descripcion String?
+
+  operarios Operario[]
+  epps      CargoEPP[]
+}
+
+model Operario {
+  id             String   @id @default(cuid())
+  nombre         String
+  cedula         String   @unique
+  rfid           String   @unique // UID de la tarjeta RFID/NFC (hex, mayúsculas)
+  activo         Boolean  @default(true)
+  cargoId        String
+  areaId         String?
+  telegramChatId String? // opcional: avisos personales de vida útil
+  createdAt      DateTime @default(now())
+
+  cargo        Cargo             @relation(fields: [cargoId], references: [id])
+  area         Area?             @relation(fields: [areaId], references: [id])
+  asignaciones AsignacionTurno[]
+  entregas     Entrega[]
+}
+
+// ─────────────────────────────────────────────
+// Riesgo: químicos y tareas
+// ─────────────────────────────────────────────
+
+model Quimico {
+  id          String      @id @default(cuid())
+  nombre      String      @unique
+  nivelRiesgo NivelRiesgo
+  descripcion String? // p.ej. "Corrosivo, vapores irritantes"
+
+  tareas Tarea[]
+}
+
+model Tarea {
+  id          String      @id @default(cuid())
+  nombre      String      @unique
+  nivelRiesgo NivelRiesgo
+  quimicoId   String?
+
+  quimico      Quimico?          @relation(fields: [quimicoId], references: [id])
+  epps         TareaEPP[]
+  asignaciones AsignacionTurno[]
+}
+
+// Qué hace un operario en un día/turno concreto (lo que se lee al pasar el RFID).
+model AsignacionTurno {
+  id         String   @id @default(cuid())
+  fecha      DateTime @db.Date
+  operarioId String
+  turnoId    String
+  tareaId    String
+  areaId     String?
+
+  operario Operario  @relation(fields: [operarioId], references: [id], onDelete: Cascade)
+  turno    Turno     @relation(fields: [turnoId], references: [id])
+  tarea    Tarea     @relation(fields: [tareaId], references: [id])
+  area     Area?     @relation(fields: [areaId], references: [id])
+  entregas Entrega[]
+
+  @@unique([operarioId, fecha, turnoId])
+  @@index([fecha])
+}
+
+// ─────────────────────────────────────────────
+// EPP y reglas de asignación
+// ─────────────────────────────────────────────
+
+model EPP {
+  id               String  @id @default(cuid())
+  codigo           String  @unique // SKU interno
+  nombre           String
+  tipo             TipoEPP
+  costoUnitario    Decimal @db.Decimal(10, 2)
+  vidaUtilDias     Int // tras entregarse, no se repone hasta cumplirse este plazo
+  especificaciones Json? // { material, talla, norma, ... }
+  activo           Boolean @default(true)
+
+  reglasCargo CargoEPP[]
+  reglasTarea TareaEPP[]
+  inventarios Inventario[]
+  entregas    Entrega[]
+}
+
+// EPP base que siempre requiere un cargo
+model CargoEPP {
+  cargoId  String
+  eppId    String
+  cantidad Int    @default(1)
+
+  cargo Cargo @relation(fields: [cargoId], references: [id], onDelete: Cascade)
+  epp   EPP   @relation(fields: [eppId], references: [id], onDelete: Cascade)
+
+  @@id([cargoId, eppId])
+}
+
+// EPP adicional que exige una tarea (por su químico / riesgo)
+model TareaEPP {
+  tareaId  String
+  eppId    String
+  cantidad Int    @default(1)
+
+  tarea Tarea @relation(fields: [tareaId], references: [id], onDelete: Cascade)
+  epp   EPP   @relation(fields: [eppId], references: [id], onDelete: Cascade)
+
+  @@id([tareaId, eppId])
+}
+
+// ─────────────────────────────────────────────
+// Hardware e inventario
+// ─────────────────────────────────────────────
+
+// Dispensador físico (ESP32). Su código es el path en Firebase: /estaciones/{codigo}
+model Estacion {
+  id         String    @id @default(cuid())
+  codigo     String    @unique // "EST-01"
+  nombre     String
+  areaId     String?
+  activa     Boolean   @default(true)
+  ultimoPing DateTime?
+
+  area        Area?        @relation(fields: [areaId], references: [id])
+  inventarios Inventario[]
+  entregas    Entrega[]
+}
+
+// Un EPP cargado en una estación, en un compartimento/motor concreto.
+model Inventario {
+  id          String @id @default(cuid())
+  estacionId  String
+  eppId       String
+  slotMotor   Int // índice del motor/compartimento en la ESP32
+  stockMinimo Int    @default(5)
+
+  estacion Estacion @relation(fields: [estacionId], references: [id], onDelete: Cascade)
+  epp      EPP      @relation(fields: [eppId], references: [id])
+  lotes    Lote[]
+
+  @@unique([estacionId, eppId])
+  @@unique([estacionId, slotMotor])
+}
+
+// Stock real: se consume por lotes en orden FEFO (primero el que vence antes).
+model Lote {
+  id               String    @id @default(cuid())
+  inventarioId     String
+  codigo           String // número de lote del proveedor
+  cantidadInicial  Int
+  stockActual      Int
+  fechaIngreso     DateTime  @default(now())
+  fechaVencimiento DateTime? @db.Date
+
+  inventario Inventario @relation(fields: [inventarioId], references: [id], onDelete: Cascade)
+  entregas   Entrega[]
+
+  @@unique([inventarioId, codigo])
+  @@index([inventarioId, fechaVencimiento])
+}
+
+// ─────────────────────────────────────────────
+// Auditoría
+// ─────────────────────────────────────────────
+
+model Entrega {
+  id            String        @id @default(cuid())
+  fecha         DateTime      @default(now())
+  operarioId    String
+  eppId         String
+  loteId        String
+  estacionId    String
+  areaId        String // dónde estaba físicamente el operario al retirar (trazabilidad de ubicación)
+  asignacionId  String?
+  cantidad      Int           @default(1)
+  costoUnitario Decimal       @db.Decimal(10, 2) // congelado al momento de la entrega
+  costoTotal    Decimal       @db.Decimal(10, 2)
+  estado        EstadoEntrega @default(PENDIENTE_VERIFICACION_CAMARA)
+  venceUso      DateTime // fecha + vidaUtilDias: a partir de aquí puede volver a retirar
+  observacion   String?
+  verificadoAt  DateTime? // momento del veredicto de la cámara
+
+  operario   Operario         @relation(fields: [operarioId], references: [id])
+  epp        EPP              @relation(fields: [eppId], references: [id])
+  lote       Lote             @relation(fields: [loteId], references: [id])
+  estacion   Estacion         @relation(fields: [estacionId], references: [id])
+  area       Area             @relation(fields: [areaId], references: [id])
+  asignacion AsignacionTurno? @relation(fields: [asignacionId], references: [id])
+
+  @@index([operarioId, eppId, venceUso])
+  @@index([fecha])
+  @@index([estado])
+  @@index([areaId, fecha])
+}
+
+model Alerta {
+  id              String       @id @default(cuid())
+  tipo            TipoAlerta
+  estado          EstadoAlerta @default(PENDIENTE)
+  mensaje         String
+  // Evita duplicar la misma alerta en cada ejecución del cron, p.ej. "STOCK_BAJO:{inventarioId}"
+  dedupeKey       String?      @unique
+  metadata        Json?
+  enviadaTelegram Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+  resueltaAt      DateTime?
+
+  @@index([estado, tipo])
+}
