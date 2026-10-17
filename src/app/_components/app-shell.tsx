@@ -16,7 +16,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <main className="w-full flex-1 px-4 py-8 sm:px-8">{children}</main>
         <footer className="border-t border-line px-4 py-4 text-xs text-faint sm:px-8">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span>HARKAI · Control de acceso a EPP con RFID, visión artificial y alertas EHS</span>
+            <span>HARKAI · Control de acceso a EPP con RFID y alertas EHS</span>
             <span className="font-mono">Hora Ecuador (UTC-5)</span>
           </div>
         </footer>

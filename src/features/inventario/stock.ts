@@ -4,12 +4,12 @@ import { fechaEcuador } from "@/lib/fechas";
 
 /**
  * Marca como FALLIDAS entregas que nunca salieron físicamente (p.ej. no se pudo enviar
- * el comando al motor) y devuelve su stock al lote. Idempotente: solo toca entregas pendientes.
+ * el comando al motor) y devuelve su stock al lote. Idempotente: solo toca entregas recién creadas.
  */
 export async function revertirEntregas(entregaIds: string[], motivo: string) {
   return prisma.$transaction(async (tx) => {
     const entregas = await tx.entrega.findMany({
-      where: { id: { in: entregaIds }, estado: EstadoEntrega.PENDIENTE_VERIFICACION_CAMARA },
+      where: { id: { in: entregaIds }, estado: EstadoEntrega.ENTREGADA },
       select: { id: true, loteId: true, cantidad: true },
     });
     for (const e of entregas) {

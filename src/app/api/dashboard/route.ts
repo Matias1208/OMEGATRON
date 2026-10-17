@@ -8,7 +8,7 @@ const querySchema = z.object({ dias: z.coerce.number().int().min(1).max(365).def
  * Tablero gerencial 1-3-10 para el frontend.
  *
  * GET /api/dashboard?dias=30
- * → { periodo, nivel1, nivel3: [costo, seguridad, inventario], nivel10: { ...10 vistas } }
+ * → { periodo, nivel1, nivel3: [costo, accesos, inventario], nivel10: { ...10 vistas } }
  *
  * Los Server Components pueden llamar directamente a getResumenGerencial() sin pasar por HTTP.
  */

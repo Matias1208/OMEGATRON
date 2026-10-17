@@ -23,7 +23,7 @@ export const metadata: Metadata = {
     template: "%s · HARKAI",
   },
   description:
-    "HARKAI: dispensación de EPP por credencial RFID con control de vida útil, inventario por lotes, verificación por cámara y alertas EHS.",
+    "HARKAI: dispensación de EPP por credencial RFID con control de vida útil, inventario por lotes, registro de accesos y alertas EHS.",
 };
 
 export const viewport: Viewport = {

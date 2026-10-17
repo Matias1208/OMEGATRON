@@ -1,4 +1,4 @@
-import { PrismaClient, NivelRiesgo, TipoEPP, EstadoEntrega } from "@prisma/client";
+import { PrismaClient, NivelRiesgo, TipoEPP, EstadoEntrega, ResultadoLectura } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -19,6 +19,7 @@ function rand() {
 
 async function limpiar() {
   await prisma.alerta.deleteMany();
+  await prisma.lectura.deleteMany();
   await prisma.entrega.deleteMany();
   await prisma.lote.deleteMany();
   await prisma.inventario.deleteMany();
@@ -179,6 +180,7 @@ async function main() {
 
   const TOLERANCIA_MS = 2 * 60 * 60 * 1000; // igual que calcularVenceUso en src/lib/fechas.ts
   const historial = [];
+  const lecturas = [];
   for (let d = 60; d >= 1; d--) {
     for (const { op, tarea, turno } of operarios) {
       if (rand() < 0.15) continue; // días libres
@@ -194,6 +196,7 @@ async function main() {
         ...reglasCargo.filter((r) => r.cargoId === op.cargoId).map((r) => r.eppId),
         ...reglasTarea.filter((r) => r.tareaId === tarea.id).map((r) => r.eppId),
       ]);
+      const inicioRetiro = historial.length;
       for (const eppId of eppIds) {
         const epp = eppPorId[eppId];
         const clave = `${op.id}:${eppId}`;
@@ -212,15 +215,75 @@ async function main() {
           cantidad: 1,
           costoUnitario: costo,
           costoTotal: costo,
-          estado: rand() < 0.06 ? EstadoEntrega.INCUMPLIMIENTO_EHS : EstadoEntrega.VERIFICADO,
+          estado: EstadoEntrega.ENTREGADA,
           venceUso: new Date(fecha.getTime() + epp.vidaUtilDias * DIA_MS - TOLERANCIA_MS),
         });
+      }
+      const entregasRetiro = historial.length - inicioRetiro;
+      if (entregasRetiro > 0) {
+        lecturas.push({
+          fecha,
+          rfid: op.rfid,
+          operarioId: op.id,
+          estacionId: estacion.id,
+          areaId: op.areaId,
+          resultado: ResultadoLectura.CONCEDIDO,
+          entregas: entregasRetiro,
+        });
+        if (rand() < 0.08) {
+          lecturas.push({
+            fecha: new Date(fecha.getTime() + 30_000),
+            rfid: op.rfid,
+            operarioId: op.id,
+            estacionId: estacion.id,
+            areaId: op.areaId,
+            resultado: ResultadoLectura.DENEGADO,
+            motivo: "RETIRO_EXCESIVO",
+          });
+        }
       }
     }
   }
   await prisma.entrega.createMany({ data: historial });
 
-  console.log(`✅ Seed OK: ${operarios.length + 1} operarios, ${Object.keys(epps).length} EPP, ${historial.length} entregas históricas`);
+  for (const [i, diasAtras] of [9, 24, 47].entries()) {
+    const fecha = new Date(fechaEcuador(-diasAtras).getTime() + 14 * 60 * 60 * 1000);
+    lecturas.push({
+      fecha,
+      rfid: `DEAD${String(i + 1).padStart(4, "0")}`,
+      estacionId: estacion.id,
+      areaId: areaHosp.id,
+      resultado: ResultadoLectura.DENEGADO,
+      motivo: "OPERARIO_NO_ENCONTRADO",
+    });
+  }
+  for (const diasAtras of [16, 39]) {
+    const { op } = operarios[diasAtras % operarios.length];
+    lecturas.push({
+      fecha: new Date(fechaEcuador(-diasAtras).getTime() + 15 * 60 * 60 * 1000),
+      rfid: op.rfid,
+      operarioId: op.id,
+      estacionId: estacion.id,
+      areaId: op.areaId,
+      resultado: ResultadoLectura.DENEGADO,
+      motivo: "SIN_STOCK",
+    });
+  }
+  for (const diasAtras of [21, 51]) {
+    const { op } = operarios[diasAtras % operarios.length];
+    lecturas.push({
+      fecha: new Date(fechaEcuador(-diasAtras).getTime() + 16 * 60 * 60 * 1000),
+      rfid: op.rfid,
+      operarioId: op.id,
+      estacionId: estacion.id,
+      areaId: op.areaId,
+      resultado: ResultadoLectura.ERROR,
+      motivo: "HARDWARE_NO_DISPONIBLE",
+    });
+  }
+  await prisma.lectura.createMany({ data: lecturas });
+
+  console.log(`✅ Seed OK: ${operarios.length + 1} operarios, ${Object.keys(epps).length} EPP, ${historial.length} entregas y ${lecturas.length} lecturas históricas`);
   console.log("   RFIDs: D21CF01B (María, quirófano - tarjeta física), 097A5502 (Luis, oficinas - tarjeta física), D4E5F6A7 (industrial), FFFFFFFF (inactivo)");
 }
 

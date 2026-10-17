@@ -1,16 +1,16 @@
 "use client";
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { AreaAnalisis, CumplimientoArea } from "@/features/dashboard/types";
+import type { AreaAnalisis, LecturasArea } from "@/features/dashboard/types";
 import { C, CURSOR_BARRA, EJE, diaCorto, tooltip } from "@/app/_components/charts";
 import { formatear, usd, type Formato } from "./formato";
-import { SERIES_CUMPLIMIENTO } from "./series";
+import { SERIES_LECTURAS } from "./series";
 
 /*
  * Gráficos específicos del dashboard. Regla de color de marca:
- *   verde = estado OK / ahorro / verificado
- *   cian  = alerta / crítico / incumplimiento (y la serie principal)
- *   blanco translúcido = neutro / pendiente
+ *   verde = estado OK / ahorro / acceso concedido
+ *   cian  = alerta / crítico / acceso denegado
+ *   blanco translúcido = error
  * El estado nunca depende solo del color: leyendas, etiquetas y tooltips lo nombran.
  */
 
@@ -96,13 +96,13 @@ export function BarrasHorizontales<T extends Record<string, unknown>>({
 }
 
 // ─────────────────────────────────────────────
-// Cumplimiento EHS por área (barras apiladas)
+// Lecturas por área (barras apiladas)
 // ─────────────────────────────────────────────
 
-export function GraficoCumplimiento({ datos }: { datos: CumplimientoArea[] }) {
-  const Tip = tooltip<CumplimientoArea>((f) => ({
-    titulo: `${f.area} · ${f.cumplimientoPct ?? "—"}% cumplimiento`,
-    filas: SERIES_CUMPLIMIENTO.map((s) => ({ nombre: s.nombre.toLowerCase(), valor: String(f[s.clave]), color: s.color })),
+export function GraficoLecturasArea({ datos }: { datos: LecturasArea[] }) {
+  const Tip = tooltip<LecturasArea>((f) => ({
+    titulo: `${f.area} · ${f.concedidasPct ?? "—"}% concedidas`,
+    filas: SERIES_LECTURAS.map((s) => ({ nombre: s.nombre.toLowerCase(), valor: String(f[s.clave]), color: s.color })),
   }));
   return (
     <div style={{ height: Math.max(120, datos.length * 42 + 16) }}>
@@ -111,7 +111,7 @@ export function GraficoCumplimiento({ datos }: { datos: CumplimientoArea[] }) {
           <XAxis type="number" hide />
           <YAxis type="category" dataKey="area" width={150} {...EJE} />
           <Tooltip content={Tip} cursor={CURSOR_BARRA} />
-          {SERIES_CUMPLIMIENTO.map((s, i) => (
+          {SERIES_LECTURAS.map((s, i) => (
             <Bar
               key={s.clave}
               dataKey={s.clave}
@@ -120,7 +120,7 @@ export function GraficoCumplimiento({ datos }: { datos: CumplimientoArea[] }) {
               fillOpacity={s.opacidad}
               stroke={C.noche}
               strokeWidth={2} // separación de 2px entre segmentos
-              radius={i === SERIES_CUMPLIMIENTO.length - 1 ? [0, 8, 8, 0] : 0}
+              radius={i === SERIES_LECTURAS.length - 1 ? [0, 8, 8, 0] : 0}
               maxBarSize={16}
               isAnimationActive={false}
             />

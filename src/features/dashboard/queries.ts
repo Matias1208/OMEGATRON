@@ -1,4 +1,4 @@
-import { EstadoAlerta, EstadoEntrega, Prisma } from "@prisma/client";
+import { EstadoAlerta, ResultadoLectura, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { DIA_MS, fechaEcuador } from "@/lib/fechas";
 import { ESTADOS_EN_USO } from "@/features/dispensa/estados";
@@ -9,10 +9,11 @@ import type {
   ConsumoDiario,
   ConsumoTurno,
   CostoPorTipo,
-  CumplimientoArea,
   InventarioEstado,
+  LecturasArea,
+  LecturasPeriodo,
   Nivel10,
-  RankingIncumplimiento,
+  RankingDenegacion,
   ResultadoQuery,
   Semaforo,
   TopEpp,
@@ -56,17 +57,38 @@ export async function totalesPeriodo(periodo: Periodo) {
     _sum: { costoTotal: true, cantidad: true },
     _count: { _all: true },
   });
-  const por = (estado: EstadoEntrega) => filas.find((f) => f.estado === estado)?._count._all ?? 0;
-  const verificados = por(EstadoEntrega.VERIFICADO);
-  const incumplimientos = por(EstadoEntrega.INCUMPLIMIENTO_EHS);
-
   return {
     costo: redondear(filas.reduce((acc, f) => acc + Number(f._sum.costoTotal ?? 0), 0)),
     unidades: filas.reduce((acc, f) => acc + (f._sum.cantidad ?? 0), 0),
     entregas: filas.reduce((acc, f) => acc + f._count._all, 0),
-    verificados,
-    incumplimientos,
-    cumplimientoPct: pct(verificados, verificados + incumplimientos),
+  };
+}
+
+export async function getLecturasPeriodo(periodo: Periodo): Promise<LecturasPeriodo> {
+  const where = { fecha: { gte: periodo.desde, lt: periodo.hasta } };
+  const [porResultado, porMotivo] = await Promise.all([
+    prisma.lectura.groupBy({ by: ["resultado"], where, _count: { _all: true } }),
+    prisma.lectura.groupBy({
+      by: ["motivo"],
+      where: { ...where, resultado: { not: ResultadoLectura.CONCEDIDO }, motivo: { not: null } },
+      _count: { _all: true },
+    }),
+  ]);
+  const contar = (resultado: ResultadoLectura) =>
+    porResultado.find((fila) => fila.resultado === resultado)?._count._all ?? 0;
+  const concedidas = contar(ResultadoLectura.CONCEDIDO);
+  const denegadas = contar(ResultadoLectura.DENEGADO);
+  const errores = contar(ResultadoLectura.ERROR);
+
+  return {
+    concedidas,
+    denegadas,
+    errores,
+    concedidasPct: pct(concedidas, concedidas + denegadas + errores),
+    porMotivo: porMotivo
+      .filter((fila): fila is typeof fila & { motivo: string } => fila.motivo !== null)
+      .map((fila) => ({ motivo: fila.motivo, cantidad: fila._count._all }))
+      .sort((a, b) => b.cantidad - a.cantidad),
   };
 }
 
@@ -75,29 +97,36 @@ export async function totalesPeriodo(periodo: Periodo) {
 // ─────────────────────────────────────────────
 
 export async function getConsumoDiario(periodo: Periodo): Promise<ConsumoDiario[]> {
-  const filas = await prisma.$queryRaw<
-    { dia: string; costo: number; unidades: number; entregas: number; verificados: number; incumplimientos: number }[]
-  >`
+  const [filas, lecturas] = await Promise.all([
+    prisma.$queryRaw<{ dia: string; costo: number; unidades: number; entregas: number }[]>`
     SELECT to_char(("fecha" AT TIME ZONE 'UTC') AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD') AS dia,
            COALESCE(SUM("costoTotal"), 0)::float8                                  AS costo,
            COALESCE(SUM("cantidad"), 0)::int                                      AS unidades,
-           COUNT(*)::int                                                          AS entregas,
-           COUNT(*) FILTER (WHERE "estado" = 'VERIFICADO')::int                   AS verificados,
-           COUNT(*) FILTER (WHERE "estado" = 'INCUMPLIMIENTO_EHS')::int           AS incumplimientos
+           COUNT(*)::int                                                          AS entregas
     FROM "Entrega"
     WHERE "fecha" >= ${periodo.desde} AND "fecha" < ${periodo.hasta}
       AND "estado"::text IN (${Prisma.join(ESTADOS_EN_USO)})
-    GROUP BY 1`;
+    GROUP BY 1`,
+    prisma.$queryRaw<{ dia: string; concedidas: number; total: number }[]>`
+    SELECT to_char(("fecha" AT TIME ZONE 'UTC') AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD') AS dia,
+           COUNT(*) FILTER (WHERE "resultado" = 'CONCEDIDO')::int AS concedidas,
+           COUNT(*)::int AS total
+    FROM "Lectura"
+    WHERE "fecha" >= ${periodo.desde} AND "fecha" < ${periodo.hasta}
+    GROUP BY 1`,
+  ]);
 
   const porDia = new Map(filas.map((f) => [f.dia, f]));
+  const lecturasPorDia = new Map(lecturas.map((f) => [f.dia, f]));
   return diasDelPeriodo(periodo).map((fecha) => {
     const f = porDia.get(fecha);
+    const l = lecturasPorDia.get(fecha);
     return {
       fecha,
       costo: redondear(f?.costo ?? 0),
       unidades: f?.unidades ?? 0,
       entregas: f?.entregas ?? 0,
-      cumplimientoPct: f ? pct(f.verificados, f.verificados + f.incumplimientos) : null,
+      concedidasPct: l ? pct(l.concedidas, l.total) : null,
     };
   });
 }
@@ -113,14 +142,9 @@ export async function getConsumoDiario(periodo: Periodo): Promise<ConsumoDiario[
  */
 export async function calcularAnalisisAhorroAreas(periodo: Periodo): Promise<AnalisisAhorroAreas> {
   const where = whereConsumo(periodo);
-  const [porArea, operariosPorArea, ehsPorArea] = await Promise.all([
+  const [porArea, operariosPorArea] = await Promise.all([
     prisma.entrega.groupBy({ by: ["areaId"], where, _sum: { costoTotal: true, cantidad: true }, _count: { _all: true } }),
     prisma.entrega.groupBy({ by: ["areaId", "operarioId"], where }),
-    prisma.entrega.groupBy({
-      by: ["areaId"],
-      where: { ...where, estado: EstadoEntrega.INCUMPLIMIENTO_EHS },
-      _count: { _all: true },
-    }),
   ]);
 
   const areas = await prisma.area.findMany({
@@ -133,8 +157,6 @@ export async function calcularAnalisisAhorroAreas(periodo: Periodo): Promise<Ana
   for (const { areaId } of operariosPorArea) {
     operariosCount.set(areaId, (operariosCount.get(areaId) ?? 0) + 1);
   }
-  const ehsCount = new Map(ehsPorArea.map((e) => [e.areaId, e._count._all]));
-
   const costoTotalEmpresa = redondear(porArea.reduce((acc, a) => acc + Number(a._sum.costoTotal ?? 0), 0));
   const consumoPromedio = porArea.length ? redondear(costoTotalEmpresa / porArea.length) : 0;
 
@@ -155,7 +177,6 @@ export async function calcularAnalisisAhorroAreas(periodo: Periodo): Promise<Ana
         entregas: a._count._all,
         operarios,
         costoPorOperario: operarios ? redondear(costo / operarios) : 0,
-        incumplimientosEHS: ehsCount.get(a.areaId) ?? 0,
         categoria: eficiente ? ("EFICIENTE" as const) : ("CRITICA" as const),
         etiqueta: eficiente ? "Proyecto de Ahorro" : "Consumo Crítico",
       };
@@ -245,36 +266,37 @@ export async function getConsumoPorEpp(periodo: Periodo): Promise<{ topEpp: TopE
 }
 
 // ─────────────────────────────────────────────
-// 5. Cumplimiento EHS por área
+// 5. Lecturas por área
 // ─────────────────────────────────────────────
 
-export async function getCumplimientoPorArea(periodo: Periodo): Promise<CumplimientoArea[]> {
-  const filas = await prisma.entrega.groupBy({
-    by: ["areaId", "estado"],
-    where: whereConsumo(periodo),
+export async function getLecturasPorArea(periodo: Periodo): Promise<LecturasArea[]> {
+  const filas = await prisma.lectura.groupBy({
+    by: ["areaId", "resultado"],
+    where: { fecha: { gte: periodo.desde, lt: periodo.hasta }, areaId: { not: null } },
     _count: { _all: true },
   });
   const areas = await prisma.area.findMany({
-    where: { id: { in: [...new Set(filas.map((f) => f.areaId))] } },
+    where: { id: { in: [...new Set(filas.map((f) => f.areaId).filter((id): id is string => id !== null))] } },
     select: { id: true, nombre: true },
   });
 
   return areas
     .map((area) => {
-      const cuenta = (estado: EstadoEntrega) =>
-        filas.find((f) => f.areaId === area.id && f.estado === estado)?._count._all ?? 0;
-      const verificados = cuenta(EstadoEntrega.VERIFICADO);
-      const incumplimientos = cuenta(EstadoEntrega.INCUMPLIMIENTO_EHS);
+      const cuenta = (resultado: ResultadoLectura) =>
+        filas.find((f) => f.areaId === area.id && f.resultado === resultado)?._count._all ?? 0;
+      const concedidas = cuenta(ResultadoLectura.CONCEDIDO);
+      const denegadas = cuenta(ResultadoLectura.DENEGADO);
+      const errores = cuenta(ResultadoLectura.ERROR);
       return {
         areaId: area.id,
         area: area.nombre,
-        verificados,
-        incumplimientos,
-        pendientes: cuenta(EstadoEntrega.PENDIENTE_VERIFICACION_CAMARA),
-        cumplimientoPct: pct(verificados, verificados + incumplimientos),
+        concedidas,
+        denegadas,
+        errores,
+        concedidasPct: pct(concedidas, concedidas + denegadas + errores),
       };
     })
-    .sort((a, b) => (a.cumplimientoPct ?? 101) - (b.cumplimientoPct ?? 101)); // peor primero
+    .sort((a, b) => (a.concedidasPct ?? 101) - (b.concedidasPct ?? 101));
 }
 
 // ─────────────────────────────────────────────
@@ -405,28 +427,33 @@ export async function getConsumoPorTurno(periodo: Periodo): Promise<ConsumoTurno
 }
 
 // ─────────────────────────────────────────────
-// 9. Ranking de incumplimientos EHS por operario
+// 9. Ranking de lecturas denegadas por operario
 // ─────────────────────────────────────────────
 
-export async function getRankingIncumplimientos(periodo: Periodo): Promise<RankingIncumplimiento[]> {
-  const filas = await prisma.entrega.groupBy({
-    by: ["operarioId", "estado"],
-    where: whereConsumo(periodo),
+export async function getRankingDenegaciones(periodo: Periodo): Promise<RankingDenegacion[]> {
+  const filas = await prisma.lectura.groupBy({
+    by: ["operarioId", "motivo"],
+    where: {
+      fecha: { gte: periodo.desde, lt: periodo.hasta },
+      resultado: ResultadoLectura.DENEGADO,
+      operarioId: { not: null },
+      motivo: { not: null },
+    },
     _count: { _all: true },
   });
 
-  const porOperario = new Map<string, { entregas: number; verificados: number; incumplimientos: number }>();
+  const porOperario = new Map<string, { denegadas: number; motivos: Map<string, number> }>();
   for (const f of filas) {
-    const acc = porOperario.get(f.operarioId) ?? { entregas: 0, verificados: 0, incumplimientos: 0 };
-    acc.entregas += f._count._all;
-    if (f.estado === EstadoEntrega.VERIFICADO) acc.verificados += f._count._all;
-    if (f.estado === EstadoEntrega.INCUMPLIMIENTO_EHS) acc.incumplimientos += f._count._all;
+    if (!f.operarioId || !f.motivo) continue;
+    const acc = porOperario.get(f.operarioId) ?? { denegadas: 0, motivos: new Map<string, number>() };
+    acc.denegadas += f._count._all;
+    acc.motivos.set(f.motivo, (acc.motivos.get(f.motivo) ?? 0) + f._count._all);
     porOperario.set(f.operarioId, acc);
   }
 
   const top = [...porOperario.entries()]
-    .filter(([, v]) => v.incumplimientos > 0)
-    .sort(([, a], [, b]) => b.incumplimientos - a.incumplimientos)
+    .filter(([, v]) => v.denegadas > 0)
+    .sort(([, a], [, b]) => b.denegadas - a.denegadas)
     .slice(0, 10);
 
   const operarios = await prisma.operario.findMany({
@@ -435,14 +462,16 @@ export async function getRankingIncumplimientos(periodo: Periodo): Promise<Ranki
   });
   const opPorId = new Map(operarios.map((o) => [o.id, o]));
 
-  return top.map(([operarioId, v]) => ({
-    operarioId,
-    operario: opPorId.get(operarioId)?.nombre ?? "—",
-    area: opPorId.get(operarioId)?.area?.nombre ?? "Sin área",
-    incumplimientos: v.incumplimientos,
-    entregas: v.entregas,
-    cumplimientoPct: pct(v.verificados, v.verificados + v.incumplimientos),
-  }));
+  return top.map(([operarioId, v]) => {
+    const motivoPrincipal = [...v.motivos.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "ERROR_INTERNO";
+    return {
+      operarioId,
+      operario: opPorId.get(operarioId)?.nombre ?? "—",
+      area: opPorId.get(operarioId)?.area?.nombre ?? "Sin área",
+      denegadas: v.denegadas,
+      motivoPrincipal,
+    };
+  });
 }
 
 // ─────────────────────────────────────────────

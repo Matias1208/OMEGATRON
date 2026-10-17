@@ -3,7 +3,7 @@
 import { CircleCheck, Clock, CreditCard, ScanLine, ShieldOff, TriangleAlert, X, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
-import { dispensarEnKiosco, simularVeredictoCamara } from "@/features/dispensa/actions";
+import { dispensarEnKiosco } from "@/features/dispensa/actions";
 import type { DatosKiosco } from "@/features/dispensa/queries";
 import type { CodigoRechazo, ResultadoDispensacion } from "@/features/dispensa/types";
 import { Badge, CardHeader, EmptyState, cx, type Tono } from "./ui";
@@ -13,7 +13,6 @@ import { Wordmark } from "./wordmark";
 // Presentación de cada resultado: color + ícono + etiqueta
 // ─────────────────────────────────────────────
 
-type Veredicto = { estado: "VERIFICADO" | "INCUMPLIMIENTO_EHS"; entregas: number } | { error: string };
 type Clase = "CONCEDIDO" | "DENEGADO" | "ALERTA";
 
 const CLASE_RECHAZO: Record<CodigoRechazo, { clase: Clase; titulo: string }> = {
@@ -22,7 +21,7 @@ const CLASE_RECHAZO: Record<CodigoRechazo, { clase: Clase; titulo: string }> = {
   OPERARIO_INACTIVO: { clase: "DENEGADO", titulo: "Operario inactivo" },
   SIN_EPP_ASIGNADO: { clase: "DENEGADO", titulo: "Sin EPP para su cargo/tarea" },
   DATOS_INVALIDOS: { clase: "DENEGADO", titulo: "Credencial ilegible" },
-  SIN_STOCK: { clase: "ALERTA", titulo: "Sin stock del EPP requerido" },
+  SIN_STOCK: { clase: "DENEGADO", titulo: "Sin stock del EPP requerido" },
   ESTACION_NO_ENCONTRADA: { clase: "ALERTA", titulo: "Estación no disponible" },
   ESTACION_SIN_AREA: { clase: "ALERTA", titulo: "Estación sin área asignada" },
   AREA_NO_ENCONTRADA: { clase: "ALERTA", titulo: "Área no registrada" },
@@ -69,12 +68,10 @@ function clasificar(r: ResultadoDispensacion): { clase: Clase; titulo: string } 
 /** Lógica compartida entre el panel y la pantalla completa: lectura → server action → resultado. */
 function useDispensacion(estacion: string) {
   const [resultado, setResultado] = useState<ResultadoDispensacion | null>(null);
-  const [veredicto, setVeredicto] = useState<Veredicto | null>(null);
   const [pendiente, iniciar] = useTransition();
 
   function dispensar(uid: string, alTerminar?: () => void) {
     if (!uid.trim() || !estacion) return;
-    setVeredicto(null);
     iniciar(async () => {
       try {
         setResultado(await dispensarEnKiosco(uid, estacion));
@@ -85,14 +82,7 @@ function useDispensacion(estacion: string) {
     });
   }
 
-  function enviarVeredicto(entregaId: string, detectado: boolean) {
-    iniciar(async () => {
-      const r = await simularVeredictoCamara(entregaId, detectado);
-      setVeredicto(r.ok ? { estado: r.estado as "VERIFICADO" | "INCUMPLIMIENTO_EHS", entregas: r.entregasActualizadas } : { error: r.error });
-    });
-  }
-
-  return { resultado, setResultado, veredicto, pendiente, dispensar, enviarVeredicto };
+  return { resultado, setResultado, pendiente, dispensar };
 }
 
 function ListaBloqueados({ bloqueados }: { bloqueados: { eppId: string; nombre: string; vigenteHasta: string }[] }) {
@@ -111,11 +101,11 @@ function ListaBloqueados({ bloqueados }: { bloqueados: { eppId: string; nombre: 
 // Panel (centro de control)
 // ─────────────────────────────────────────────
 
-export function KioscoPanel({ datos, simulacionCamara }: { datos: DatosKiosco; simulacionCamara: boolean }) {
+export function KioscoPanel({ datos }: { datos: DatosKiosco }) {
   const [estacion, setEstacion] = useState(datos.estaciones[0]?.codigo ?? "");
   const [rfid, setRfid] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const { resultado, veredicto, pendiente, dispensar, enviarVeredicto } = useDispensacion(estacion);
+  const { resultado, pendiente, dispensar } = useDispensacion(estacion);
 
   if (datos.estaciones.length === 0) {
     return <EmptyState titulo="No hay estaciones activas" descripcion="Registra una estación para poder dispensar EPP." />;
@@ -289,36 +279,6 @@ export function KioscoPanel({ datos, simulacionCamara }: { datos: DatosKiosco; s
                       Motor {resultado.comandoMotor.motor} · {resultado.comandoMotor.epp}
                       {resultado.comandoMotor.simulado && " (simulado)"}
                     </Badge>
-                    {veredicto ? (
-                      "error" in veredicto ? (
-                        <span className="text-xs text-cyan">{veredicto.error}</span>
-                      ) : (
-                        <Badge tono={veredicto.estado === "VERIFICADO" ? "OK" : "CRITICO"}>
-                          {veredicto.estado === "VERIFICADO" ? "Uso verificado" : "Incumplimiento EHS"} · {veredicto.entregas} EPP
-                        </Badge>
-                      )
-                    ) : simulacionCamara ? (
-                      <>
-                        <button
-                          type="button"
-                          disabled={pendiente}
-                          onClick={() => enviarVeredicto(resultado.comandoMotor!.entregaId, true)}
-                          className="rounded-lg border border-green/50 px-2.5 py-1 text-xs text-green transition-colors duration-150 hover:bg-green/10"
-                        >
-                          Cámara: se lo colocó
-                        </button>
-                        <button
-                          type="button"
-                          disabled={pendiente}
-                          onClick={() => enviarVeredicto(resultado.comandoMotor!.entregaId, false)}
-                          className="rounded-lg border border-cyan/50 px-2.5 py-1 text-xs text-cyan transition-colors duration-150 hover:bg-cyan/10"
-                        >
-                          Cámara: no se lo colocó
-                        </button>
-                      </>
-                    ) : (
-                      <Badge tono="PENDIENTE">Esperando cámara</Badge>
-                    )}
                   </div>
                 )}
               </>

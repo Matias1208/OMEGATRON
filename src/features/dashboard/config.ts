@@ -8,10 +8,9 @@ export const METAS = {
     /** Por encima de esto el costo es "CRITICO". Entre ambos: "ATENCION". */
     variacionCriticaPct: 10,
   },
-  seguridad: {
-    /** % de entregas verificadas por cámara sobre el total con veredicto. */
-    cumplimientoMetaPct: 95,
-    cumplimientoCriticoPct: 85,
+  accesos: {
+    /** Porcentaje de lecturas problemáticas permitido antes de atención. */
+    problemasMaxPct: 5,
   },
   inventario: {
     /** Cobertura (días de consumo cubiertos por el stock) bajo la cual hay que reponer. */

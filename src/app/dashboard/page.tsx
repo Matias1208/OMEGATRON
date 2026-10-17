@@ -19,11 +19,12 @@ import {
 import { getResumenGerencial } from "@/features/dashboard/resumen";
 import { getCompartimentos, type Compartimento } from "@/features/inventario/lotes";
 import type { KpiEstrategico, Pilar, Semaforo } from "@/features/dashboard/types";
+import { etiquetaMotivoLectura } from "@/features/lecturas/motivos";
 import { AreaSuave, Sparkline } from "../_components/charts";
 import { Gauge } from "../_components/gauge";
 import { Badge, Card, DataTable, Delta, ErrorState, Eyebrow, cx, type Tono } from "../_components/ui";
-import { BarrasHorizontales, GraficoCostoPorArea, GraficoCumplimiento, GraficoReemplazos } from "./_components/graficos";
-import { SERIES_CUMPLIMIENTO } from "./_components/series";
+import { BarrasHorizontales, GraficoCostoPorArea, GraficoLecturasArea, GraficoReemplazos } from "./_components/graficos";
+import { SERIES_LECTURAS } from "./_components/series";
 import { usd } from "./_components/formato";
 import { BotonResolver } from "./_components/boton-resolver";
 import { IngresoLoteForm } from "./_components/ingreso-lote-form";
@@ -35,18 +36,16 @@ export const dynamic = "force-dynamic";
 const PERIODOS = [7, 30, 90] as const;
 
 const ETIQUETA_ESTADO: Record<Semaforo, string> = { OK: "En meta", ATENCION: "Atención", CRITICO: "Crítico" };
-const ICONO_PILAR: Record<Pilar, LucideIcon> = { COSTO: CircleDollarSign, SEGURIDAD: ShieldCheck, INVENTARIO: Package };
+const ICONO_PILAR: Record<Pilar, LucideIcon> = { COSTO: CircleDollarSign, ACCESOS: ShieldCheck, INVENTARIO: Package };
 const ETIQUETA_ALERTA: Record<string, string> = {
   STOCK_BAJO: "Stock bajo",
   LOTE_POR_VENCER: "Lote por vencer",
   VIDA_UTIL_VENCIDA: "Vida útil cumplida",
   RETIRO_EXCESIVO: "Retiro excesivo",
-  INCUMPLIMIENTO_EHS: "Incumplimiento EHS",
   FALLA_HARDWARE: "Falla de hardware",
 };
 const TONO_ALERTA: Record<string, Tono> = {
   STOCK_BAJO: "CRITICO",
-  INCUMPLIMIENTO_EHS: "CRITICO",
   FALLA_HARDWARE: "CRITICO",
   RETIRO_EXCESIVO: "DENEGADO",
   LOTE_POR_VENCER: "ATENCION",
@@ -96,7 +95,7 @@ function TarjetaPilar({ kpi }: { kpi: KpiEstrategico }) {
       </div>
       <Delta
         valor={kpi.variacionPct}
-        sufijo={kpi.pilar === "SEGURIDAD" ? " pp" : "%"}
+        sufijo={kpi.pilar === "ACCESOS" ? " pp" : "%"}
         referencia="vs período anterior"
         subeEsBueno={kpi.pilar !== "COSTO"}
       />
@@ -165,7 +164,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
 function Contenido({ data, compartimentos }: { data: Resumen; compartimentos: Compartimento[] }) {
   const { nivel1, nivel3, nivel10: n } = data;
-  const seguridad = nivel3.find((k) => k.pilar === "SEGURIDAD")!;
+  const accesos = nivel3.find((k) => k.pilar === "ACCESOS")!;
   const ok = nivel1.estado === "OK";
 
   return (
@@ -197,11 +196,11 @@ function Contenido({ data, compartimentos }: { data: Resumen; compartimentos: Co
         </div>
         <Card className="flex flex-col justify-center lg:col-span-4">
           <Gauge
-            id="gauge-cumplimiento-dashboard"
-            valor={seguridad.valor}
-            meta={seguridad.meta ?? undefined}
-            etiqueta="Cumplimiento EHS"
-            detalle="EPP usados correctamente según la cámara"
+            id="gauge-accesos-dashboard"
+            valor={accesos.valor}
+            meta={accesos.meta ?? undefined}
+            etiqueta="Accesos concedidos"
+            detalle="Lecturas RFID concedidas sobre el total"
           />
         </Card>
       </section>
@@ -233,8 +232,8 @@ function Contenido({ data, compartimentos }: { data: Resumen; compartimentos: Co
             vacio={n.consumoDiario.every((d) => d.entregas === 0)}
             className="lg:col-span-2"
             tabla={{
-              columnas: ["Fecha", "Costo", "Unidades", "Cumplimiento"],
-              filas: n.consumoDiario.map((d) => [d.fecha, usd(d.costo), d.unidades, pct(d.cumplimientoPct)]),
+              columnas: ["Fecha", "Costo", "Unidades", "Concedidas %"],
+              filas: n.consumoDiario.map((d) => [d.fecha, usd(d.costo), d.unidades, pct(d.concedidasPct)]),
             }}
           >
             <AreaSuave datos={n.consumoDiario} x="fecha" y="costo" formato="usd" nombre="costo" />
@@ -316,15 +315,15 @@ function Contenido({ data, compartimentos }: { data: Resumen; compartimentos: Co
           </Panel>
 
           <Panel
-            id="cumplimiento"
+            id="lecturas-por-area"
             numero={5}
-            titulo="Cumplimiento EHS por área"
-            descripcion="Veredictos de la cámara sobre el uso del EPP"
+            titulo="Lecturas por área"
+            descripcion="Accesos concedidos, denegados y errores por área"
             icono={ShieldCheck}
-            vacio={n.cumplimientoPorArea.length === 0}
+            vacio={n.lecturasPorArea.length === 0}
             accion={
               <ul className="flex flex-col gap-1 text-[11px] text-muted" aria-label="Leyenda">
-                {SERIES_CUMPLIMIENTO.map((s) => (
+                {SERIES_LECTURAS.map((s) => (
                   <li key={s.clave} className="flex items-center gap-1.5">
                     <span className={cx("size-2.5 rounded-sm", s.claseLeyenda)} aria-hidden />
                     {s.nombre}
@@ -333,11 +332,11 @@ function Contenido({ data, compartimentos }: { data: Resumen; compartimentos: Co
               </ul>
             }
             tabla={{
-              columnas: ["Área", "Verificados", "Incumplimientos", "Pendientes", "Cumplimiento"],
-              filas: n.cumplimientoPorArea.map((a) => [a.area, a.verificados, a.incumplimientos, a.pendientes, pct(a.cumplimientoPct)]),
+              columnas: ["Área", "Concedidas", "Denegadas", "Errores", "Concedidas %"],
+              filas: n.lecturasPorArea.map((a) => [a.area, a.concedidas, a.denegadas, a.errores, pct(a.concedidasPct)]),
             }}
           >
-            <GraficoCumplimiento datos={n.cumplimientoPorArea} />
+            <GraficoLecturasArea datos={n.lecturasPorArea} />
           </Panel>
 
           <Panel
@@ -446,12 +445,12 @@ function Contenido({ data, compartimentos }: { data: Resumen; compartimentos: Co
             {compartimentos.length > 0 && <IngresoLoteForm compartimentos={compartimentos} />}
           </Panel>
 
-          <Panel numero={9} titulo="Incumplimientos por operario" descripcion="Para capacitación focalizada" icono={UsersRound}>
+          <Panel numero={9} titulo="Operarios con más lecturas denegadas" descripcion="Motivo más frecuente por operario" icono={UsersRound}>
             <DataTable
-              filas={n.rankingIncumplimientos}
+              filas={n.rankingDenegaciones}
               clave={(r) => r.operarioId}
               compacta
-              vacio="Ningún incumplimiento en el período"
+              vacio="Ninguna lectura denegada en el período"
               columnas={[
                 {
                   titulo: "Operario",
@@ -462,8 +461,8 @@ function Contenido({ data, compartimentos }: { data: Resumen; compartimentos: Co
                     </div>
                   ),
                 },
-                { titulo: "Incumpl.", mono: true, alinear: "derecha", celda: (r) => <span className="text-cyan">{r.incumplimientos}</span> },
-                { titulo: "Cumplimiento", mono: true, alinear: "derecha", celda: (r) => pct(r.cumplimientoPct) },
+                { titulo: "Denegadas", mono: true, alinear: "derecha", celda: (r) => <span className="text-cyan">{r.denegadas}</span> },
+                { titulo: "Motivo principal", celda: (r) => etiquetaMotivoLectura(r.motivoPrincipal) },
               ]}
             />
           </Panel>

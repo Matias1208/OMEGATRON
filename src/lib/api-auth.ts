@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
 /**
- * Autenticación de dispositivos edge (ESP32, script de visión en Python) mediante
+ * Autenticación de dispositivos edge (ESP32) mediante
  * el header `x-api-key`, comparado contra HARDWARE_API_KEY en tiempo constante.
  */
 export function verificarApiKey(request: Request): boolean {

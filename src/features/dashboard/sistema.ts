@@ -1,4 +1,4 @@
-import { EstadoAlerta, EstadoEntrega } from "@prisma/client";
+import { EstadoAlerta, ResultadoLectura } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { fechaEcuador } from "@/lib/fechas";
 import { ESTADOS_EN_USO } from "@/features/dispensa/estados";
@@ -12,9 +12,10 @@ export type LecturaReciente = {
   fecha: string;
   rfid: string;
   operario: string;
-  epp: string;
   estacion: string;
-  estado: EstadoEntrega;
+  resultado: ResultadoLectura;
+  motivo: string | null;
+  entregas: number;
 };
 
 export type EstadoSistema = {
@@ -24,9 +25,8 @@ export type EstadoSistema = {
   entregasAyerMismaHora: number;
   operariosAtendidosHoy: number;
   ultimasLecturas: LecturaReciente[];
-  pendientesCamara: number;
   alertasPendientes: number;
-  alertasCriticas: number; // stock bajo + incumplimientos EHS + fallas de hardware
+  alertasCriticas: number;
   estaciones: {
     id: string;
     codigo: string;
@@ -53,7 +53,6 @@ export async function getEstadoSistema(): Promise<ResultadoQuery<EstadoSistema>>
       entregasAyerMismaHora,
       atendidosHoy,
       lecturas,
-      pendientesCamara,
       alertas,
       estaciones,
     ] = await Promise.all([
@@ -63,19 +62,20 @@ export async function getEstadoSistema(): Promise<ResultadoQuery<EstadoSistema>>
         where: { fecha: { gte: new Date(inicioHoy.getTime() - DIA), lt: new Date(Date.now() - DIA) }, estado: enUso },
       }),
       prisma.entrega.groupBy({ by: ["operarioId"], where: { fecha: { gte: inicioHoy }, estado: enUso } }),
-      prisma.entrega.findMany({
+      prisma.lectura.findMany({
         orderBy: { fecha: "desc" },
         take: 8,
         select: {
           id: true,
           fecha: true,
-          estado: true,
+          rfid: true,
+          resultado: true,
+          motivo: true,
+          entregas: true,
           operario: { select: { nombre: true, rfid: true } },
-          epp: { select: { nombre: true } },
           estacion: { select: { codigo: true } },
         },
       }),
-      prisma.entrega.count({ where: { estado: EstadoEntrega.PENDIENTE_VERIFICACION_CAMARA } }),
       prisma.alerta.groupBy({ by: ["tipo"], where: { estado: EstadoAlerta.PENDIENTE }, _count: { _all: true } }),
       prisma.estacion.findMany({
         where: { activa: true },
@@ -91,7 +91,7 @@ export async function getEstadoSistema(): Promise<ResultadoQuery<EstadoSistema>>
       }),
     ]);
 
-    const criticas = new Set(["STOCK_BAJO", "INCUMPLIMIENTO_EHS", "FALLA_HARDWARE"]);
+    const criticas = new Set(["STOCK_BAJO", "FALLA_HARDWARE"]);
     const ahora = Date.now();
 
     return {
@@ -104,13 +104,13 @@ export async function getEstadoSistema(): Promise<ResultadoQuery<EstadoSistema>>
         ultimasLecturas: lecturas.map((l) => ({
           id: l.id,
           fecha: l.fecha.toISOString(),
-          rfid: l.operario.rfid,
-          operario: l.operario.nombre,
-          epp: l.epp.nombre,
-          estacion: l.estacion.codigo,
-          estado: l.estado,
+          rfid: l.operario?.rfid ?? l.rfid,
+          operario: l.operario?.nombre ?? "No identificado",
+          estacion: l.estacion?.codigo ?? "—",
+          resultado: l.resultado,
+          motivo: l.motivo,
+          entregas: l.entregas,
         })),
-        pendientesCamara,
         alertasPendientes: alertas.reduce((acc, a) => acc + a._count._all, 0),
         alertasCriticas: alertas.filter((a) => criticas.has(a.tipo)).reduce((acc, a) => acc + a._count._all, 0),
         estaciones: estaciones.map((e) => ({
