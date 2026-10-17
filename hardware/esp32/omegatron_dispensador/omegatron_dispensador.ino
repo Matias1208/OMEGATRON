@@ -4,6 +4,7 @@
 
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <SPI.h>
 #include <MFRC522.h>
 #include "secrets.h"  // WIFI_SSID, WIFI_PASSWORD, BACKEND_HOST, HARDWARE_API_KEY
@@ -15,9 +16,10 @@
 // pero esa entrega NO se registra ni respeta vida útil. Usar solo como último recurso.
 #define GIRO_SI_NO_HAY_BACKEND false
 
-// La primera petición en `npm run dev` compila la ruta y puede tardar >10 s.
-const uint16_t HTTP_CONNECT_TIMEOUT_MS = 4000;
-const uint16_t HTTP_RESPONSE_TIMEOUT_MS = 15000;
+// La primera petición en `npm run dev` compila la ruta y puede tardar >10 s, y el plan
+// free de Render despierta el servicio dormido en ~50 s (el handshake TLS suma ~1-2 s).
+const uint16_t HTTP_CONNECT_TIMEOUT_MS = 8000;
+const uint16_t HTTP_RESPONSE_TIMEOUT_MS = 60000;
 const unsigned long ANTIRREBOTE_MS = 3000;  // misma tarjeta dentro de este lapso se ignora
 
 // ---------------- HARDWARE ----------------
@@ -27,6 +29,11 @@ MFRC522 mfrc522(SS_PIN, RST_PIN);
 
 const int motor1Pin1 = 26;
 const int motor1Pin2 = 27;
+
+// HTTPS (Render) sin validar el certificado: suficiente para el prototipo, evita
+// mantener el certificado raíz en el firmware. HTTP plano para la laptop en la red local.
+WiFiClientSecure clienteSeguro;
+WiFiClient clientePlano;
 
 String ultimoUid = "";
 unsigned long ultimoUidMs = 0;
@@ -87,6 +94,15 @@ void conectarWiFi() {
   Serial.println("\n[OK] Wi-Fi conectado. IP de la ESP32: " + WiFi.localIP().toString());
 }
 
+void iniciarHttp(HTTPClient& http, const String& url) {
+  if (url.startsWith("https://")) {
+    clienteSeguro.setInsecure();
+    http.begin(clienteSeguro, url);
+  } else {
+    http.begin(clientePlano, url);
+  }
+}
+
 // Al arrancar: confirma que el backend es alcanzable y explica por qué si no lo es.
 void verificarBackend() {
   HTTPClient http;
@@ -94,7 +110,7 @@ void verificarBackend() {
   Serial.println("Verificando backend en " + url + " ...");
   http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
   http.setTimeout(HTTP_RESPONSE_TIMEOUT_MS);
-  http.begin(url);
+  iniciarHttp(http, url);
   int code = http.GET();
   http.end();
 
@@ -103,6 +119,7 @@ void verificarBackend() {
     return;
   }
   Serial.printf("[ERROR] Backend no responde (codigo %d: %s)\n", code, http.errorToString(code).c_str());
+  Serial.println("  Render: ¿BACKEND_HOST es https://<servicio>.onrender.com sin '/' final? Abre /api/health en el navegador.");
   Serial.println("  1. ¿La laptop esta en la MISMA red Wi-Fi que la ESP32 (" + WiFi.localIP().toString() + ")?");
   Serial.println("  2. ¿BACKEND_HOST tiene la IP actual de la laptop? (ipconfig)");
   Serial.println("  3. ¿Corre `npm run dev -- -H 0.0.0.0` en la laptop?");
@@ -113,7 +130,7 @@ void consultarBackend(const String& uid) {
   HTTPClient http;
   http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
   http.setTimeout(HTTP_RESPONSE_TIMEOUT_MS);
-  http.begin(String(BACKEND_HOST) + "/api/hardware/rfid");
+  iniciarHttp(http, String(BACKEND_HOST) + "/api/hardware/rfid");
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-api-key", HARDWARE_API_KEY);
 

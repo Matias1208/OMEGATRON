@@ -1,0 +1,53 @@
+# Blueprint de Render: PostgreSQL + servicio Next.js (API para la ESP32, cron de alertas).
+# Vercel usa la misma base de datos con la "External Database URL" de omegatron-db.
+# Render > New > Blueprint > repo Matias1208/OMEGATRON. Cada push a main redespliega.
+
+databases:
+  - name: omegatron-db
+    plan: free
+    region: oregon
+    databaseName: omegatron
+    user: omegatron
+
+services:
+  - type: web
+    name: omegatron-backend
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    autoDeploy: true
+    # Las migraciones van en el build porque preDeployCommand no existe en el plan free.
+    buildCommand: npm ci && npx prisma migrate deploy && npm run build
+    startCommand: npx next start -H 0.0.0.0 -p $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: omegatron-db
+          property: connectionString
+      - key: HARDWARE_API_KEY
+        generateValue: true
+      - key: CRON_SECRET
+        generateValue: true
+      # Render mantiene el proceso vivo, así que el cron interno funciona aquí (no en Vercel).
+      - key: CRON_INTERNO_MINUTOS
+        value: "60"
+      - key: HARDWARE_SIMULADO
+        value: "false"
+      - key: MODO_PRUEBAS
+        value: "false"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: FIREBASE_DATABASE_URL
+        sync: false

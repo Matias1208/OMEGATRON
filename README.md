@@ -61,6 +61,12 @@ Cada retiro deja el EPP vigente según su vida útil (guantes: ~22 h). Ejecuta `
 
 `.env` y `hardware/esp32/**/secrets.h` **nunca** se suben a git.
 
+## Despliegue (Render + Vercel)
+
+- **Render** (`render.yaml`): PostgreSQL `omegatron-db` + servicio `omegatron-backend`. Aplica `prisma migrate deploy` en cada build, corre el cron interno y es el `BACKEND_HOST` de la ESP32. Autodeploy en cada push a `main`.
+- **Vercel**: misma app; `DATABASE_URL` = *External Database URL* de `omegatron-db` con `?sslmode=require`. Dejar `CRON_INTERNO_MINUTOS` vacío (las alertas programadas las corre Render).
+- Datos de demo (una vez): `DATABASE_URL="<external url>" npm run db:seed` desde local.
+
 ## Pantallas
 
 | Ruta | Contenido |
