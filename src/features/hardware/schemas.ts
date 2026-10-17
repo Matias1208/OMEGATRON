@@ -14,7 +14,7 @@ export const rfidRequestSchema = z.object({
 export type ComandoMotor = {
   motor: number;
   epp_id: string;
-  entrega_id: string; // para que el script de visión sepa qué entrega validar
+  entrega_id: string; // trazabilidad de la entrega asociada al comando
   timestamp: number;
   trigger: number; // valor aleatorio: fuerza un cambio aunque se repita el mismo motor
 };

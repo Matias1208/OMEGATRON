@@ -6,18 +6,28 @@ import {
   getConsumoDiario,
   getConsumoPorEpp,
   getConsumoPorTurno,
-  getCumplimientoPorArea,
   getEstadoInventario,
-  getRankingIncumplimientos,
+  getLecturasPeriodo,
+  getLecturasPorArea,
+  getRankingDenegaciones,
   getReemplazosProximos,
   redondear,
   totalesPeriodo,
 } from "./queries";
-import type { KpiEstrategico, Nivel1, Nivel10, Pilar, ResultadoQuery, ResumenGerencial, Semaforo } from "./types";
+import type {
+  KpiEstrategico,
+  LecturasPeriodo,
+  Nivel1,
+  Nivel10,
+  Pilar,
+  ResultadoQuery,
+  ResumenGerencial,
+  Semaforo,
+} from "./types";
 
 const GRAVEDAD: Record<Semaforo, number> = { OK: 0, ATENCION: 1, CRITICO: 2 };
 // Ante empate de gravedad, se prioriza la vida de las personas, luego la operación, luego el costo.
-const PRIORIDAD_PILAR: Pilar[] = ["SEGURIDAD", "INVENTARIO", "COSTO"];
+const PRIORIDAD_PILAR: Pilar[] = ["ACCESOS", "INVENTARIO", "COSTO"];
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const variacion = (actual: number, anterior: number) =>
@@ -66,39 +76,59 @@ function kpiCosto(
   };
 }
 
-function kpiSeguridad(
-  actualPct: number | null,
-  anteriorPct: number | null,
-  incumplimientos: number,
-  porArea: Nivel10["cumplimientoPorArea"],
-  ranking: Nivel10["rankingIncumplimientos"],
+function kpiAccesos(
+  actual: LecturasPeriodo,
+  anterior: LecturasPeriodo,
+  ranking: Nivel10["rankingDenegaciones"],
   serie: Nivel10["consumoDiario"],
 ): KpiEstrategico {
-  const { cumplimientoMetaPct: meta, cumplimientoCriticoPct: critico } = METAS.seguridad;
-  const valor = actualPct ?? 100; // sin veredictos aún: no hay evidencia de incumplimiento
-  const estado: Semaforo = valor >= meta ? "OK" : valor >= critico ? "ATENCION" : "CRITICO";
-
-  const peorArea = porArea.find((a) => a.incumplimientos > 0);
+  const motivos = new Map(actual.porMotivo.map(({ motivo, cantidad }) => [motivo, cantidad]));
+  const problematicas =
+    actual.errores + (motivos.get("SIN_STOCK") ?? 0) + (motivos.get("OPERARIO_NO_ENCONTRADO") ?? 0);
+  const total = actual.concedidas + actual.denegadas + actual.errores;
+  const problematicaRatio = total ? problematicas / total : 0;
+  const problematicaPct = redondear(problematicaRatio * 100, 1);
+  const estado: Semaforo =
+    problematicas === 0
+      ? "OK"
+      : problematicaRatio <= METAS.accesos.problemasMaxPct / 100
+        ? "ATENCION"
+        : "CRITICO";
+  const valor = actual.concedidasPct ?? 100;
+  const sinStock = motivos.get("SIN_STOCK") ?? 0;
+  const credencialesDesconocidas = motivos.get("OPERARIO_NO_ENCONTRADO") ?? 0;
+  const motivoFrecuente = actual.porMotivo[0];
   const reincidente = ranking[0];
-  const accion =
-    estado === "OK"
-      ? `Cumplimiento sobre la meta (${meta}%). Reconocer al equipo y mantener la verificación por cámara.`
-      : `Capacitación EHS focalizada en ${peorArea?.area ?? "las áreas con incumplimientos"}` +
-        (peorArea?.cumplimientoPct != null ? ` (${peorArea.cumplimientoPct}% de cumplimiento)` : "") +
-        (reincidente ? ` y seguimiento a ${reincidente.operario} (${reincidente.incumplimientos} incumplimientos).` : ".");
+  const accion = sinStock
+    ? `Reponer el EPP sin stock (${sinStock} lectura(s) afectada(s)).`
+    : actual.errores
+      ? `Revisar el dispensador y la conexión de las estaciones: ${actual.errores} lectura(s) terminaron en error.`
+      : credencialesDesconocidas
+        ? `Registrar o corregir las credenciales desconocidas (${credencialesDesconocidas} lectura(s)).`
+        : problematicas
+          ? `Revisar las lecturas problemáticas del período (${problematicaPct}% del total).`
+          : motivoFrecuente
+            ? `Los rechazos se deben principalmente a ${motivoFrecuente.motivo} (${motivoFrecuente.cantidad}); verificar la asignación y el uso de credenciales.` +
+              (reincidente ? ` Revisar el caso de ${reincidente.operario}.` : "")
+            : "Los accesos problemáticos son 0; mantener las reglas de dispensación.";
 
   return {
-    pilar: "SEGURIDAD",
-    titulo: "Cumplimiento EHS",
+    pilar: "ACCESOS",
+    titulo: "Accesos concedidos",
     valor,
     unidad: "%",
-    meta,
-    valorAnterior: anteriorPct,
-    variacionPct: actualPct !== null && anteriorPct !== null ? redondear(actualPct - anteriorPct, 1) : null, // puntos porcentuales
+    meta: null,
+    valorAnterior: anterior.concedidasPct,
+    variacionPct:
+      actual.concedidasPct !== null && anterior.concedidasPct !== null
+        ? redondear(actual.concedidasPct - anterior.concedidasPct, 1)
+        : null,
     estado,
-    lectura: `${valor}% de los EPP entregados se usaron correctamente; ${incumplimientos} incumplimientos detectados por cámara.`,
+    lectura:
+      `${valor}% de accesos concedidos; ${actual.denegadas} denegados y ${actual.errores} errores.` +
+      (problematicas ? ` ${problematicas} lectura(s) problemática(s) (${problematicaPct}%).` : ""),
     accion,
-    tendencia: serie.map((d) => ({ fecha: d.fecha, valor: d.cumplimientoPct })),
+    tendencia: serie.map((d) => ({ fecha: d.fecha, valor: d.concedidasPct })),
   };
 }
 
@@ -157,7 +187,7 @@ function nivel1(kpis: KpiEstrategico[]): Nivel1 {
   if (peorGravedad === 0) {
     return {
       estado: "OK",
-      titular: "Operación bajo control: costo, seguridad e inventario dentro de meta.",
+      titular: "Operación bajo control: costo, accesos e inventario dentro de meta.",
       decisionPrioritaria: kpis.find((k) => k.pilar === "COSTO")!.accion,
       pilarPrioritario: null,
     };
@@ -186,7 +216,7 @@ function nivel1(kpis: KpiEstrategico[]): Nivel1 {
 /**
  * Tablero gerencial con la metodología 1-3-10:
  *  - 1 s:  nivel1  → estado global, titular y la decisión prioritaria.
- *  - 3 s:  nivel3  → costo, seguridad EHS y disponibilidad, con meta, variación y acción.
+ *  - 3 s:  nivel3  → costo, accesos y disponibilidad, con meta, variación y acción.
  *  - 10 s: nivel10 → las 10 vistas de diagnóstico, listas para Recharts.
  */
 export async function getResumenGerencial(opciones: { dias?: number } = {}): Promise<ResultadoQuery<ResumenGerencial>> {
@@ -202,36 +232,33 @@ export async function getResumenGerencial(opciones: { dias?: number } = {}): Pro
       consumoDiario,
       costoPorArea,
       { topEpp, costoPorTipo },
-      cumplimientoPorArea,
+      lecturasPorArea,
       inventario,
       reemplazosProximos,
       consumoPorTurno,
-      rankingIncumplimientos,
+      rankingDenegaciones,
       alertasPendientes,
+      lecturas,
+      lecturasAnt,
     ] = await Promise.all([
       totalesPeriodo(periodo),
       totalesPeriodo(anterior),
       getConsumoDiario(periodo),
       calcularAnalisisAhorroAreas(periodo),
       getConsumoPorEpp(periodo),
-      getCumplimientoPorArea(periodo),
+      getLecturasPorArea(periodo),
       getEstadoInventario(periodo),
       getReemplazosProximos(),
       getConsumoPorTurno(periodo),
-      getRankingIncumplimientos(periodo),
+      getRankingDenegaciones(periodo),
       getAlertasPendientes(),
+      getLecturasPeriodo(periodo),
+      getLecturasPeriodo(anterior),
     ]);
 
     const nivel3: ResumenGerencial["nivel3"] = [
       kpiCosto(totales.costo, totalesAnt.costo, costoPorArea, consumoDiario),
-      kpiSeguridad(
-        totales.cumplimientoPct,
-        totalesAnt.cumplimientoPct,
-        totales.incumplimientos,
-        cumplimientoPorArea,
-        rankingIncumplimientos,
-        consumoDiario,
-      ),
+      kpiAccesos(lecturas, lecturasAnt, rankingDenegaciones, consumoDiario),
       kpiInventario(inventario, reemplazosProximos, consumoDiario),
     ];
 
@@ -247,11 +274,11 @@ export async function getResumenGerencial(opciones: { dias?: number } = {}): Pro
           costoPorArea,
           topEpp,
           costoPorTipo,
-          cumplimientoPorArea,
+          lecturasPorArea,
           inventario,
           reemplazosProximos,
           consumoPorTurno,
-          rankingIncumplimientos,
+          rankingDenegaciones,
           alertasPendientes,
         },
       },

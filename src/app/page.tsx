@@ -1,10 +1,11 @@
 import { Activity, BellRing, ChartArea, ChartColumn, History, Radio, Router, ScanLine, Users } from "lucide-react";
 import Link from "next/link";
 import { DIA_MS } from "@/lib/fechas";
-import { getConsumoDiario, getConsumoPorTurno, totalesPeriodo } from "@/features/dashboard/queries";
+import { getConsumoDiario, getConsumoPorTurno, getLecturasPeriodo } from "@/features/dashboard/queries";
 import { getEstadoSistema, type LecturaReciente } from "@/features/dashboard/sistema";
 import { getDatosKiosco } from "@/features/dispensa/queries";
-import type { EstadoEntrega } from "@prisma/client";
+import { etiquetaMotivoLectura } from "@/features/lecturas/motivos";
+import type { ResultadoLectura } from "@prisma/client";
 import { AreaSuave, BarrasFinas } from "./_components/charts";
 import { Gauge } from "./_components/gauge";
 import { Logo } from "./_components/logo";
@@ -14,12 +15,10 @@ import { Badge, Card, CardHeader, DataTable, Delta, EmptyState, ErrorState, Stat
 // Datos en vivo de la base: nunca prerenderizar en el build.
 export const dynamic = "force-dynamic";
 
-const ESTADO_LECTURA: Record<EstadoEntrega, { tono: Tono; etiqueta: string }> = {
-  VERIFICADO: { tono: "OK", etiqueta: "VERIFICADO" },
-  PENDIENTE_VERIFICACION_CAMARA: { tono: "PENDIENTE", etiqueta: "PENDIENTE CÁMARA" },
-  INCUMPLIMIENTO_EHS: { tono: "CRITICO", etiqueta: "INCUMPLIMIENTO" },
-  FALLIDA: { tono: "NEUTRO", etiqueta: "FALLIDA" },
-  ANULADA: { tono: "NEUTRO", etiqueta: "ANULADA" },
+const ESTADO_LECTURA: Record<ResultadoLectura, { tono: Tono; etiqueta: string }> = {
+  CONCEDIDO: { tono: "OK", etiqueta: "CONCEDIDO" },
+  DENEGADO: { tono: "DENEGADO", etiqueta: "DENEGADO" },
+  ERROR: { tono: "CRITICO", etiqueta: "ERROR" },
 };
 
 const hora = (iso: string) =>
@@ -67,11 +66,12 @@ export default async function CentroDeControl({
   }
 
   const hasta = new Date();
-  const [datosKiosco, consumo14, turnos, totales] = await Promise.all([
+  const periodo30 = { desde: new Date(hasta.getTime() - 30 * DIA_MS), hasta };
+  const [datosKiosco, consumo14, turnos, lecturas30] = await Promise.all([
     getDatosKiosco().catch(() => null),
     getConsumoDiario({ desde: new Date(hasta.getTime() - 14 * DIA_MS), hasta }).catch(() => []),
     getConsumoPorTurno({ desde: new Date(hasta.getTime() - 30 * DIA_MS), hasta }).catch(() => []),
-    totalesPeriodo({ desde: new Date(hasta.getTime() - 30 * DIA_MS), hasta }).catch(() => null),
+    getLecturasPeriodo(periodo30).catch(() => null),
   ]);
 
   const variacionHoy =
@@ -82,13 +82,12 @@ export default async function CentroDeControl({
     { titulo: "Hora", mono: true, celda: (l: LecturaReciente) => hora(l.fecha) },
     { titulo: "Credencial", mono: true, celda: (l: LecturaReciente) => <span className="text-cyan">{l.rfid}</span> },
     { titulo: "Operario", className: "whitespace-nowrap", celda: (l: LecturaReciente) => l.operario },
-    { titulo: "EPP", celda: (l: LecturaReciente) => <span className="text-muted">{l.epp}</span> },
     { titulo: "Estación", mono: true, celda: (l: LecturaReciente) => l.estacion },
     {
-      titulo: "Estado",
-      alinear: "derecha" as const,
-      celda: (l: LecturaReciente) => <Badge tono={ESTADO_LECTURA[l.estado].tono}>{ESTADO_LECTURA[l.estado].etiqueta}</Badge>,
+      titulo: "Resultado",
+      celda: (l: LecturaReciente) => <Badge tono={ESTADO_LECTURA[l.resultado].tono}>{ESTADO_LECTURA[l.resultado].etiqueta}</Badge>,
     },
+    { titulo: "Motivo", celda: (l: LecturaReciente) => <span className="text-muted">{etiquetaMotivoLectura(l.motivo)}</span> },
   ];
 
   return (
@@ -114,7 +113,7 @@ export default async function CentroDeControl({
           icono={BellRing}
           detalle={
             <span className={d.alertasCriticas > 0 ? "text-xs font-medium text-cyan" : "text-xs text-faint"}>
-              {d.alertasCriticas} críticas · {d.pendientesCamara} sin verificar
+              {d.alertasCriticas} críticas
             </span>
           }
         />
@@ -169,11 +168,10 @@ export default async function CentroDeControl({
 
         <Card className="flex flex-col justify-center lg:col-span-5">
           <Gauge
-            id="gauge-cumplimiento-home"
-            valor={totales?.cumplimientoPct ?? null}
-            meta={95}
-            etiqueta="Uso correcto del EPP"
-            detalle={totales ? `Últimos 30 días · ${totales.verificados} verificados, ${totales.incumplimientos} incumplimientos` : undefined}
+            id="gauge-accesos-home"
+            valor={lecturas30?.concedidasPct ?? null}
+            etiqueta="Accesos concedidos"
+            detalle={lecturas30 ? `Últimos 30 días · ${lecturas30.concedidas} concedidos, ${lecturas30.denegadas} denegados` : undefined}
           />
         </Card>
       </section>
@@ -201,14 +199,14 @@ export default async function CentroDeControl({
       {/* Dispensación */}
       {datosKiosco && (
         <Card id="dispensacion">
-          <KioscoPanel datos={datosKiosco} simulacionCamara={d.integraciones.hardwareSimulado} />
+          <KioscoPanel datos={datosKiosco} />
         </Card>
       )}
 
       {/* Logs + estaciones */}
       <section className="grid gap-4 lg:grid-cols-12">
         <Card id="lecturas" className="lg:col-span-8">
-          <CardHeader titulo="Lecturas recientes" descripcion="Últimas entregas registradas por las estaciones" icono={History} />
+          <CardHeader titulo="Lecturas recientes" descripcion="Últimas credenciales leídas por las estaciones" icono={History} />
           <DataTable columnas={columnasLecturas} filas={d.ultimasLecturas} clave={(l) => l.id} vacio="Aún no hay lecturas" />
         </Card>
 

@@ -134,7 +134,7 @@ export async function ejecutarDispensacion({
             cantidad: epp.cantidad,
             costoUnitario: epp.costoUnitario,
             costoTotal,
-            estado: EstadoEntrega.PENDIENTE_VERIFICACION_CAMARA,
+            estado: EstadoEntrega.ENTREGADA,
             fecha: ahora,
             venceUso: calcularVenceUso(ahora, epp.vidaUtilDias),
           },

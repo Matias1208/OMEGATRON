@@ -3,9 +3,11 @@ import { TipoAlerta, TipoEPP } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getRtdb } from "@/lib/firebase";
 import { ejecutarDispensacion } from "@/features/dispensa/service";
-import type { EntregaCreada, ResultadoDispensacion } from "@/features/dispensa/types";
+import { rfidSchema } from "@/features/dispensa/schemas";
+import type { CodigoRechazo, EntregaCreada, ResultadoDispensacion } from "@/features/dispensa/types";
 import { revertirEntregas } from "@/features/inventario/stock";
 import { registrarAlerta } from "@/features/alertas/service";
+import { registrarLectura } from "@/features/lecturas/service";
 import type { ComandoMotor } from "./schemas";
 
 // Prototipo del hackathon: la máquina física tiene un solo motor (dispensador de guantes).
@@ -59,45 +61,120 @@ export function buscarEstacion(ref: string) {
   });
 }
 
+const CODIGOS_ERROR: CodigoRechazo[] = [
+  "HARDWARE_NO_DISPONIBLE",
+  "ERROR_INTERNO",
+  "ESTACION_NO_ENCONTRADA",
+  "ESTACION_SIN_AREA",
+  "AREA_NO_ENCONTRADA",
+];
+
+async function registrarResultadoLectura(
+  rfid: string,
+  estacionId: string | null,
+  areaId: string | null,
+  resultado: ResultadoDispensacion,
+) {
+  const uid = rfidSchema.safeParse(rfid);
+  let operarioId: string | null = resultado.ok ? resultado.operario.id : null;
+
+  if (!resultado.ok && uid.success) {
+    try {
+      const operario = await prisma.operario.findUnique({
+        where: { rfid: uid.data },
+        select: { id: true, areaId: true },
+      });
+      operarioId = operario?.id ?? null;
+      areaId ??= operario?.areaId ?? null;
+    } catch (error) {
+      console.error("[lecturas] No se pudo asociar la lectura con el operario:", error);
+    }
+  }
+
+  await registrarLectura({
+    rfid: uid.success ? uid.data : rfid,
+    operarioId,
+    estacionId: resultado.ok ? resultado.estacion.id : estacionId,
+    areaId: resultado.ok ? resultado.area.id : areaId,
+    resultado: resultado.ok ? "CONCEDIDO" : CODIGOS_ERROR.includes(resultado.codigo) ? "ERROR" : "DENEGADO",
+    motivo: resultado.ok ? null : resultado.codigo,
+    entregas: resultado.ok ? resultado.entregas.length : 0,
+  });
+}
+
 /**
  * Flujo completo en una estación física: reglas de negocio → orden al motor.
  * Lo usan el endpoint de la ESP32 y el kiosco, para que ambos se comporten igual.
  * Si la orden no llega al motor, las entregas se anulan y el stock vuelve al lote.
  */
 export async function dispensarEnEstacion(rfid: string, estacionRef: string): Promise<ResultadoDispensacion> {
-  const estacion = await buscarEstacion(estacionRef);
-  if (!estacion) {
-    return { ok: false, codigo: "ESTACION_NO_ENCONTRADA", mensaje: "Estación no registrada o inactiva." };
-  }
-  if (!estacion.areaId) {
-    return { ok: false, codigo: "ESTACION_SIN_AREA", mensaje: "La estación no tiene un área asignada." };
-  }
-
-  const resultado = await ejecutarDispensacion({ rfid, areaId: estacion.areaId, estacionId: estacion.id });
-  if (!resultado.ok) return resultado;
-
-  const entregaMotor = elegirEntregaParaMotor(resultado.entregas);
+  let estacionId: string | null = null;
+  let areaId: string | null = null;
   try {
-    const comando = await enviarComandoMotor(estacion.codigo, entregaMotor);
-    return {
-      ...resultado,
-      comandoMotor: { motor: comando.motor, entregaId: entregaMotor.entregaId, epp: entregaMotor.nombre, simulado: esSimulado() },
-    };
+    const estacion = await buscarEstacion(estacionRef);
+    if (!estacion) {
+      const resultado: ResultadoDispensacion = {
+        ok: false,
+        codigo: "ESTACION_NO_ENCONTRADA",
+        mensaje: "Estación no registrada o inactiva.",
+      };
+      await registrarResultadoLectura(rfid, null, null, resultado);
+      return resultado;
+    }
+    estacionId = estacion.id;
+    areaId = estacion.areaId;
+    if (!estacion.areaId) {
+      const resultado: ResultadoDispensacion = {
+        ok: false,
+        codigo: "ESTACION_SIN_AREA",
+        mensaje: "La estación no tiene un área asignada.",
+      };
+      await registrarResultadoLectura(rfid, estacionId, areaId, resultado);
+      return resultado;
+    }
+
+    const dispensacion = await ejecutarDispensacion({ rfid, areaId: estacion.areaId, estacionId: estacion.id });
+    if (!dispensacion.ok) {
+      await registrarResultadoLectura(rfid, estacionId, areaId, dispensacion);
+      return dispensacion;
+    }
+
+    const entregaMotor = elegirEntregaParaMotor(dispensacion.entregas);
+    try {
+      const comando = await enviarComandoMotor(estacion.codigo, entregaMotor);
+      const resultado: ResultadoDispensacion = {
+        ...dispensacion,
+        comandoMotor: { motor: comando.motor, entregaId: entregaMotor.entregaId, epp: entregaMotor.nombre, simulado: esSimulado() },
+      };
+      await registrarResultadoLectura(rfid, estacionId, areaId, resultado);
+      return resultado;
+    } catch (error) {
+      console.error("[hardware] Falló la orden al motor:", error);
+      const ids = dispensacion.entregas.map((e) => e.entregaId);
+      await revertirEntregas(ids, "No se pudo enviar el comando al motor (Firebase)");
+      after(() =>
+        registrarAlerta({
+          tipo: TipoAlerta.FALLA_HARDWARE,
+          mensaje: `🔌 FALLA HARDWARE: no se pudo enviar la orden de dispensación a la estación ${estacion.codigo}. Revisar conexión con Firebase.`,
+          metadata: { estacionId: estacion.id, entregaIds: ids },
+        }),
+      );
+      const resultado: ResultadoDispensacion = {
+        ok: false,
+        codigo: "HARDWARE_NO_DISPONIBLE",
+        mensaje: "No se pudo comunicar con el dispensador. Intente de nuevo.",
+      };
+      await registrarResultadoLectura(rfid, estacionId, areaId, resultado);
+      return resultado;
+    }
   } catch (error) {
-    console.error("[hardware] Falló la orden al motor:", error);
-    const ids = resultado.entregas.map((e) => e.entregaId);
-    await revertirEntregas(ids, "No se pudo enviar el comando al motor (Firebase)");
-    after(() =>
-      registrarAlerta({
-        tipo: TipoAlerta.FALLA_HARDWARE,
-        mensaje: `🔌 FALLA HARDWARE: no se pudo enviar la orden de dispensación a la estación ${estacion.codigo}. Revisar conexión con Firebase.`,
-        metadata: { estacionId: estacion.id, entregaIds: ids },
-      }),
-    );
-    return {
+    console.error("[hardware] Error procesando la lectura RFID:", error);
+    const resultado: ResultadoDispensacion = {
       ok: false,
-      codigo: "HARDWARE_NO_DISPONIBLE",
-      mensaje: "No se pudo comunicar con el dispensador. Intente de nuevo.",
+      codigo: "ERROR_INTERNO",
+      mensaje: "Error interno al procesar la dispensación. Intenta de nuevo.",
     };
+    await registrarResultadoLectura(rfid, estacionId, areaId, resultado);
+    return resultado;
   }
 }

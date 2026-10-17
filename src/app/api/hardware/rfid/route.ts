@@ -39,6 +39,17 @@ export async function POST(request: Request) {
 
   const parsed = rfidRequestSchema.safeParse(body);
   if (!parsed.success) {
+    const contenido = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
+    if (typeof contenido?.rfid === "string") {
+      const estacionRef = typeof contenido.estacion_id === "string" ? contenido.estacion_id : "";
+      const resultado = await dispensarEnEstacion(contenido.rfid, estacionRef);
+      if (!resultado.ok) {
+        return NextResponse.json(
+          { ok: false, codigo: resultado.codigo, mensaje: resultado.mensaje },
+          { status: STATUS_POR_RECHAZO[resultado.codigo] ?? 403 },
+        );
+      }
+    }
     return NextResponse.json(
       { ok: false, codigo: "DATOS_INVALIDOS", mensaje: parsed.error.issues.map((i) => i.message).join(", ") },
       { status: 400 },

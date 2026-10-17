@@ -2,7 +2,7 @@
 
 Estación Inteligente de EPP — Hackathon Expo Clean Ecuador 2026 (Reto 5: Monitoreo Ergonómico y Gestión Inteligente de EPP).
 
-Entrega el equipo de protección correcto según **cargo, tarea y químico del turno**, controla su **vida útil** e **inventario por lote (FEFO)**, verifica su uso con **visión artificial** y alerta por **Telegram**. Incluye un tablero gerencial con metodología **1-3-10**.
+Entrega el equipo de protección correcto según **cargo, tarea y químico del turno**, controla su **vida útil** e **inventario por lote (FEFO)** y registra cada lectura RFID para auditar accesos concedidos, denegados y errores. Envía alertas por **Telegram** e incluye un tablero gerencial con metodología **1-3-10**.
 
 **Stack:** Next.js 15 (App Router) · TypeScript · Prisma 6 + PostgreSQL (Docker) · Zod · Tailwind 4 · Recharts · Firebase Admin (Realtime Database) · Telegram Bot API · ESP32.
 
@@ -54,8 +54,8 @@ Cada retiro deja el EPP vigente según su vida útil (guantes: ~22 h). Ejecuta `
 | `DATABASE_URL` | PostgreSQL (el valor de `.env.example` sirve con `docker-compose.yml`) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Alertas. Bot con @BotFather; el chat id con `npm run telegram:test` |
 | `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `FIREBASE_DATABASE_URL` | Orden al motor vía Realtime Database (`npm run firebase:env`) |
-| `HARDWARE_API_KEY` | Clave compartida con la ESP32 y el script de visión (header `x-api-key`) |
-| `HARDWARE_SIMULADO` | `true` = no escribe en Firebase y habilita la simulación de cámara en el kiosco |
+| `HARDWARE_API_KEY` | Clave compartida con la ESP32 (header `x-api-key`) |
+| `HARDWARE_SIMULADO` | `true` = no escribe en Firebase; permite probar el flujo sin ESP32 |
 | `CRON_INTERNO_MINUTOS` | Revisiones de alertas automáticas en el servidor (vacío = desactivado) |
 | `CRON_SECRET` | Solo producción: `GET /api/cron/alertas` con `Authorization: Bearer` |
 
@@ -66,14 +66,13 @@ Cada retiro deja el EPP vigente según su vida útil (guantes: ~22 h). Ejecuta `
 | Ruta | Contenido |
 |---|---|
 | `/` | Centro de control: estado del sistema, estaciones, integraciones y **panel de dispensación** (acepta lector RFID USB; mismo flujo que la ESP32) |
-| `/dashboard?dias=7\|30\|90` | Tablero 1-3-10: estado + decisión prioritaria, 3 pilares (costo, cumplimiento EHS, disponibilidad), 10 vistas de diagnóstico, reposición de stock y resolución de alertas |
+| `/dashboard?dias=7\|30\|90` | Tablero 1-3-10: estado + decisión prioritaria, 3 pilares (costo, accesos, disponibilidad), 10 vistas de diagnóstico, reposición de stock y resolución de alertas |
 
 ## API
 
 | Método | Ruta | Auth | Uso |
 |---|---|---|---|
 | POST | `/api/hardware/rfid` | `x-api-key` | ESP32: `{ "rfid": "D21CF01B", "estacion_id": "EST-01" }` → 200 dispensa / 403 denegado / 503 sin Firebase |
-| POST | `/api/vision/validate` | `x-api-key` | Cámara: `{ "entrega_id", "epp_detectado", "confianza?" }` → aplica a todo el retiro |
 | GET | `/api/dashboard?dias=30` | — | Resumen 1-3-10 en JSON (listo para Recharts) |
 | GET | `/api/cron/alertas` | Bearer `CRON_SECRET` o `x-api-key` | Revisiones programadas de alertas |
 | GET | `/api/health` | — | Verificación de conectividad (la ESP32 la llama al arrancar) |
@@ -83,11 +82,11 @@ Cada retiro deja el EPP vigente según su vida útil (guantes: ~22 h). Ejecuta `
 1. Se lee la credencial (ESP32 → `/api/hardware/rfid`, o el panel del kiosco).
 2. EPP requerido = reglas del **cargo** ∪ reglas de la **tarea** del turno (si no hay asignación hoy, se usa su tarea habitual).
 3. Se bloquea el EPP aún dentro de su vida útil (retiro excesivo → alerta Telegram; un re-toque < 2 min es rebote y no alerta).
-4. Se descuenta del lote que vence primero (FEFO) en una transacción con bloqueo por operario y se registran las entregas como `PENDIENTE_VERIFICACION_CAMARA`.
+4. Se descuenta del lote que vence primero (FEFO) en una transacción con bloqueo por operario y se registran las entregas como `ENTREGADA`.
 5. Se escribe la orden en Firebase (`/estaciones/EST-01/comando`). Si falla, las entregas pasan a `FALLIDA` y el stock vuelve al lote.
-6. La cámara envía su veredicto → `VERIFICADO` o `INCUMPLIMIENTO_EHS` (alerta Telegram).
+6. Cada lectura RFID registra el resultado final: `CONCEDIDO`, `DENEGADO` por reglas de negocio o `ERROR` del sistema, junto con su motivo y cantidad de EPP entregados.
 
-**Alertas:** stock bajo (se cierra sola al reponer), lote por vencer / vencido con stock, vida útil cumplida (resumen consolidado; se cierra al reemplazar), retiro excesivo, incumplimiento EHS y falla de hardware. Todas deduplicadas.
+**Alertas:** stock bajo (se cierra sola al reponer), lote por vencer / vencido con stock, vida útil cumplida (resumen consolidado; se cierra al reemplazar), retiro excesivo y falla de hardware. Todas deduplicadas.
 
 ## Estructura
 
@@ -100,10 +99,11 @@ src/
 │   ├── page.tsx             centro de control + panel de dispensación
 │   ├── dashboard/           tablero 1-3-10 (+ _components: gráficos Recharts, formularios)
 │   ├── _components/         shell, navegación y componentes de UI compartidos
-│   └── api/                 hardware/rfid, vision/validate, dashboard, cron/alertas, health
+│   └── api/                 hardware/rfid, dashboard, cron/alertas, health
 ├── features/                lógica de dominio
-│   ├── dispensa/            reglas EHS, vida útil, entregas, veredicto de cámara
+│   ├── dispensa/            reglas EHS, vida útil y entregas
 │   ├── hardware/            dispensarEnEstacion: reglas + orden al motor + reversión
+│   ├── lecturas/            registro y motivos de lecturas RFID
 │   ├── inventario/          FEFO, reversión, ingreso de lotes
 │   ├── alertas/             alertas deduplicadas, Telegram, revisiones programadas
 │   └── dashboard/           consultas agregadas y resumen 1-3-10

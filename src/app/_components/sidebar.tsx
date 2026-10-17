@@ -58,7 +58,7 @@ export function Sidebar({ logoCompleto, logoEscudo }: { logoCompleto: ReactNode;
 
       <div className="m-3 hidden rounded-2xl border border-line bg-gradient-to-br from-cyan/15 to-transparent p-4 lg:block">
         <p className="font-display text-sm font-semibold text-white">Estación EST-01</p>
-        <p className="mt-1 text-xs text-muted">Credencial RFID · cámara EHS · alertas Telegram</p>
+        <p className="mt-1 text-xs text-muted">Credencial RFID · control de acceso · alertas Telegram</p>
       </div>
     </aside>
   );

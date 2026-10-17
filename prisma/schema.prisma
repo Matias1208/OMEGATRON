@@ -33,9 +33,7 @@ enum TipoEPP {
 }
 
 enum EstadoEntrega {
-  PENDIENTE_VERIFICACION_CAMARA // dispensado, esperando veredicto de la cámara (edge Python)
-  VERIFICADO // la cámara confirmó que el operario se colocó el EPP
-  INCUMPLIMIENTO_EHS // retiró el EPP pero la cámara detectó que NO se lo colocó
+  ENTREGADA
   FALLIDA // el hardware reportó error (stock se revierte)
   ANULADA // anulada manualmente
 }
@@ -45,8 +43,13 @@ enum TipoAlerta {
   LOTE_POR_VENCER
   VIDA_UTIL_VENCIDA
   RETIRO_EXCESIVO
-  INCUMPLIMIENTO_EHS
   FALLA_HARDWARE
+}
+
+enum ResultadoLectura {
+  CONCEDIDO
+  DENEGADO
+  ERROR
 }
 
 enum EstadoAlerta {
@@ -78,6 +81,7 @@ model Area {
   estaciones   Estacion[]
   asignaciones AsignacionTurno[]
   entregas     Entrega[]
+  lecturas     Lectura[]
 
   @@unique([clienteId, nombre])
 }
@@ -115,6 +119,7 @@ model Operario {
   area         Area?             @relation(fields: [areaId], references: [id])
   asignaciones AsignacionTurno[]
   entregas     Entrega[]
+  lecturas     Lectura[]
 }
 
 // ─────────────────────────────────────────────
@@ -220,6 +225,7 @@ model Estacion {
   area        Area?        @relation(fields: [areaId], references: [id])
   inventarios Inventario[]
   entregas    Entrega[]
+  lecturas    Lectura[]
 }
 
 // Un EPP cargado en una estación, en un compartimento/motor concreto.
@@ -271,10 +277,9 @@ model Entrega {
   cantidad      Int           @default(1)
   costoUnitario Decimal       @db.Decimal(10, 2) // congelado al momento de la entrega
   costoTotal    Decimal       @db.Decimal(10, 2)
-  estado        EstadoEntrega @default(PENDIENTE_VERIFICACION_CAMARA)
+  estado        EstadoEntrega @default(ENTREGADA)
   venceUso      DateTime // fecha + vidaUtilDias: a partir de aquí puede volver a retirar
   observacion   String?
-  verificadoAt  DateTime? // momento del veredicto de la cámara
 
   operario   Operario         @relation(fields: [operarioId], references: [id])
   epp        EPP              @relation(fields: [eppId], references: [id])
@@ -287,6 +292,27 @@ model Entrega {
   @@index([fecha])
   @@index([estado])
   @@index([areaId, fecha])
+}
+
+/// Una fila por cada credencial leída (ESP32 o kiosco). Base de la validación de retiros.
+model Lectura {
+  id         String           @id @default(cuid())
+  fecha      DateTime         @default(now())
+  rfid       String
+  operarioId String?
+  estacionId String?
+  areaId     String?
+  resultado  ResultadoLectura
+  motivo     String?
+  entregas   Int              @default(0)
+
+  operario Operario? @relation(fields: [operarioId], references: [id], onDelete: SetNull)
+  estacion Estacion? @relation(fields: [estacionId], references: [id], onDelete: SetNull)
+  area     Area?     @relation(fields: [areaId], references: [id], onDelete: SetNull)
+
+  @@index([fecha])
+  @@index([resultado, fecha])
+  @@index([operarioId, fecha])
 }
 
 model Alerta {

@@ -3,7 +3,7 @@ import type { TipoAlerta, TipoEPP } from "@prisma/client";
 export type ResultadoQuery<T> = { ok: true; data: T } | { ok: false; error: string };
 
 export type Semaforo = "OK" | "ATENCION" | "CRITICO";
-export type Pilar = "COSTO" | "SEGURIDAD" | "INVENTARIO";
+export type Pilar = "COSTO" | "ACCESOS" | "INVENTARIO";
 
 /** Todas las fechas de series son "YYYY-MM-DD" en hora de Ecuador (eje X de Recharts). */
 export type PuntoSerie = { fecha: string; valor: number | null };
@@ -24,7 +24,6 @@ export type AreaAnalisis = {
   entregas: number;
   operarios: number;
   costoPorOperario: number;
-  incumplimientosEHS: number;
   categoria: "EFICIENTE" | "CRITICA";
   etiqueta: string;
 };
@@ -74,17 +73,24 @@ export type ConsumoDiario = {
   costo: number;
   unidades: number;
   entregas: number;
-  cumplimientoPct: number | null;
+  concedidasPct: number | null;
+};
+export type LecturasPeriodo = {
+  concedidas: number;
+  denegadas: number;
+  errores: number;
+  concedidasPct: number | null;
+  porMotivo: { motivo: string; cantidad: number }[];
 };
 export type TopEpp = { eppId: string; codigo: string; epp: string; tipo: TipoEPP; unidades: number; costo: number; participacionPct: number };
 export type CostoPorTipo = { tipo: TipoEPP; costo: number; unidades: number; participacionPct: number };
-export type CumplimientoArea = {
+export type LecturasArea = {
   areaId: string;
   area: string;
-  verificados: number;
-  incumplimientos: number;
-  pendientes: number;
-  cumplimientoPct: number | null;
+  concedidas: number;
+  denegadas: number;
+  errores: number;
+  concedidasPct: number | null;
 };
 export type InventarioEstado = {
   inventarioId: string;
@@ -110,18 +116,17 @@ export type ReemplazoProximo = {
   costoEstimado: number;
 };
 export type ConsumoTurno = { turno: string; costo: number; unidades: number; entregas: number };
-export type RankingIncumplimiento = {
+export type RankingDenegacion = {
   operarioId: string;
   operario: string;
   area: string;
-  incumplimientos: number;
-  entregas: number;
-  cumplimientoPct: number | null;
+  denegadas: number;
+  motivoPrincipal: string;
 };
 
 /** NIVEL 10 (10 segundos): las 10 vistas de diagnóstico. */
 export type Nivel10 = {
-  /** 1. AreaChart/ComposedChart — costo diario + % cumplimiento */
+  /** 1. AreaChart/ComposedChart — costo diario + % de lecturas concedidas */
   consumoDiario: ConsumoDiario[];
   /** 2. BarChart + ReferenceLine — costo por área vs promedio */
   costoPorArea: AnalisisAhorroAreas;
@@ -129,8 +134,8 @@ export type Nivel10 = {
   topEpp: TopEpp[];
   /** 4. PieChart — distribución del gasto por tipo de EPP */
   costoPorTipo: CostoPorTipo[];
-  /** 5. BarChart apilado — verificados / incumplimientos / pendientes por área */
-  cumplimientoPorArea: CumplimientoArea[];
+  /** 5. BarChart apilado — concedidas / denegadas / errores por área */
+  lecturasPorArea: LecturasArea[];
   /** 6. BarChart — stock vs mínimo, con cobertura en días */
   inventario: InventarioEstado[];
   /** 7. BarChart por día + tabla — reemplazos de EPP durable y su presupuesto */
@@ -142,8 +147,8 @@ export type Nivel10 = {
   };
   /** 8. BarChart — consumo por turno */
   consumoPorTurno: ConsumoTurno[];
-  /** 9. Tabla/BarChart — operarios con más incumplimientos EHS */
-  rankingIncumplimientos: RankingIncumplimiento[];
+  /** 9. Tabla/BarChart — operarios con más lecturas denegadas */
+  rankingDenegaciones: RankingDenegacion[];
   /** 10. Tabla + PieChart — alertas pendientes */
   alertasPendientes: {
     total: number;
