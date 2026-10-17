@@ -13,14 +13,12 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "postinstall": "prisma generate",
-    "firebase:env": "node scripts/firebase-env.mjs",
     "telegram:test": "node --env-file=.env scripts/telegram-test.mjs",
     "demo": "next build && next start -H 0.0.0.0 -p 3000",
     "start:red": "next start -H 0.0.0.0 -p 3000"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
-    "firebase-admin": "^14.5.0",
     "lucide-react": "^1.58.0",
     "next": "15.5.28",
     "react": "19.1.0",

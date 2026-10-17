@@ -277,7 +277,6 @@ export function KioscoPanel({ datos }: { datos: DatosKiosco }) {
                   <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
                     <Badge tono="OK">
                       Motor {resultado.comandoMotor.motor} · {resultado.comandoMotor.epp}
-                      {resultado.comandoMotor.simulado && " (simulado)"}
                     </Badge>
                   </div>
                 )}

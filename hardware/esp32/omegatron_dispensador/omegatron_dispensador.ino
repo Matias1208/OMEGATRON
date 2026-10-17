@@ -152,8 +152,6 @@ void consultarBackend(const String& uid) {
     Serial.println("[ERROR] API key incorrecta: revisa HARDWARE_API_KEY en secrets.h y en el .env.");
   } else if (code == 404) {
     Serial.println("[ERROR] Estacion no registrada: revisa ESTACION_ID (" ESTACION_ID ").");
-  } else if (code == 503) {
-    Serial.println("[ERROR] El backend no pudo comunicarse con Firebase. No se entrega.");
   } else if (code < 0) {
     Serial.printf("[ERROR] Sin conexion con el backend: %s\n", http.errorToString(code).c_str());
     if (GIRO_SI_NO_HAY_BACKEND) {

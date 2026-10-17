@@ -35,19 +35,9 @@ services:
       # Render mantiene el proceso vivo, así que el cron interno funciona aquí (no en Vercel).
       - key: CRON_INTERNO_MINUTOS
         value: "60"
-      - key: HARDWARE_SIMULADO
-        value: "false"
       - key: MODO_PRUEBAS
         value: "false"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_CHAT_ID
-        sync: false
-      - key: FIREBASE_PROJECT_ID
-        sync: false
-      - key: FIREBASE_CLIENT_EMAIL
-        sync: false
-      - key: FIREBASE_PRIVATE_KEY
-        sync: false
-      - key: FIREBASE_DATABASE_URL
         sync: false

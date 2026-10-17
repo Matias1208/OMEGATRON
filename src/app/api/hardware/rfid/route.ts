@@ -11,18 +11,17 @@ const STATUS_POR_RECHAZO: Partial<Record<CodigoRechazo, number>> = {
   AREA_NO_ENCONTRADA: 404,
   ESTACION_NO_ENCONTRADA: 404,
   ESTACION_SIN_AREA: 409,
-  HARDWARE_NO_DISPONIBLE: 503,
   ERROR_INTERNO: 500,
 };
 
 /**
- * Endpoint que consume la ESP32 al leer una tarjeta.
+ * Endpoint que consume la ESP32 al leer una tarjeta (REST puro, sin Firebase).
  *
  * POST /api/hardware/rfid
  * Headers: x-api-key: <HARDWARE_API_KEY>
  * Body:    { "rfid": "D21CF01B", "estacion_id": "EST-01" }   // estacion_id = código o id de la estación
  *
- * 200 → comando escrito en Firebase (/estaciones/{codigo}/comando), el motor girará.
+ * 200 → entrega registrada y stock descontado; la ESP32 gira el motor.
  * 403 → denegado por negocio (retiro excesivo, operario inactivo, sin stock...).
  */
 export async function POST(request: Request) {
@@ -64,6 +63,7 @@ export async function POST(request: Request) {
       if (estacion) await prisma.estacion.update({ where: { id: estacion.id }, data: { ultimoPing: new Date() } });
     });
 
+    // Reglas de cargo/tarea y vida útil → entrega registrada y stock descontado (FEFO) en Prisma.
     const resultado = await dispensarEnEstacion(rfid, estacion_id);
     if (!resultado.ok) {
       return NextResponse.json(
@@ -72,16 +72,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Respuesta compacta: la ESP32 tiene poca memoria.
-    return NextResponse.json({
-      ok: true,
-      mensaje: `Dispensando ${resultado.comandoMotor?.epp}`,
-      operario: resultado.operario.nombre,
-      motor: resultado.comandoMotor?.motor,
-      entrega_id: resultado.comandoMotor?.entregaId,
-      total_entregas: resultado.entregas.length,
-      bloqueados: resultado.bloqueados.length,
-    });
+    return NextResponse.json({ ok: true, mensaje: "Entregando" }, { status: 200 });
   } catch (error) {
     console.error("[api/hardware/rfid] Error:", error);
     return NextResponse.json({ ok: false, codigo: "ERROR_INTERNO", mensaje: "Error interno" }, { status: 500 });

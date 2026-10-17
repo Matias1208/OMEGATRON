@@ -69,8 +69,8 @@ export type ResultadoDispensacion =
       /** EPP requeridos que no se entregan porque el operario aún tiene uno vigente. */
       bloqueados: EppBloqueado[];
       sinStock: EppSinStock[];
-      /** Orden enviada al motor (solo cuando la dispensación pasa por una estación física). */
-      comandoMotor?: { motor: number; entregaId: string; epp: string; simulado: boolean };
+      /** EPP que sale por el motor (solo cuando la dispensación pasa por una estación física). */
+      comandoMotor?: { motor: number; entregaId: string; epp: string };
     }
   | {
       ok: false;

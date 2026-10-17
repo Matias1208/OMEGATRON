@@ -36,7 +36,7 @@ export type EstadoSistema = {
     ultimoPing: string | null;
     enLinea: boolean;
   }[];
-  integraciones: { firebase: boolean; telegram: boolean; hardwareSimulado: boolean; modoPruebas: boolean };
+  integraciones: { telegram: boolean; modoPruebas: boolean };
 };
 
 /** Foto rápida del sistema para la portada (centro de control). */
@@ -124,9 +124,7 @@ export async function getEstadoSistema(): Promise<ResultadoQuery<EstadoSistema>>
         })),
         // Solo se informa si están configuradas, nunca sus valores.
         integraciones: {
-          firebase: !!(process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_DATABASE_URL),
           telegram: !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
-          hardwareSimulado: process.env.HARDWARE_SIMULADO === "true",
           modoPruebas: process.env.MODO_PRUEBAS === "true",
         },
       },
